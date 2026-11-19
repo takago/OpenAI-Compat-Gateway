@@ -20,7 +20,7 @@ install -d -o root -g root -m 0755 "$DEST"
 install -d -o "$USERNAME" -g "$USERNAME" -m 0700 /var/lib/openai-compat-gateway
 # No overwrite of persistent database. Keep source root-owned to reduce attack surface.
 if [[ "$SRC" != "$DEST" ]]; then
-  for f in gateway.py management.py admin.html requirements.txt LICENSE README.md README.ja.md; do
+  for f in gateway.py management.py endpoints.py admin.html requirements.txt LICENSE README.md README.ja.md; do
     install -m 0644 "$SRC/$f" "$DEST/$f"
   done
 else

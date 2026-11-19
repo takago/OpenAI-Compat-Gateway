@@ -9,6 +9,7 @@ import sqlite3
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
+from endpoints import ROUTES, ENDPOINTS, normalize
 
 CAPABILITIES = {"chat", "completions", "responses", "embeddings", "audio_transcriptions", "audio_translations", "audio_speech", "images_generations", "images_edits", "images_variations", "videos"}
 
@@ -96,6 +97,22 @@ class Store:
             model_cols = {r[1] for r in db.execute("PRAGMA table_info(models)")}
             if "manual" not in model_cols:
                 db.execute("ALTER TABLE models ADD COLUMN manual INTEGER NOT NULL DEFAULT 0")
+            if "endpoints" not in model_cols:
+                db.execute("ALTER TABLE models ADD COLUMN endpoints TEXT NOT NULL DEFAULT '[]'")
+                # Preserve existing routing behavior when migrating from backend-level capabilities.
+                db.execute("""UPDATE models SET endpoints =
+                    (SELECT backends.capabilities FROM backends WHERE backends.id=models.backend_id)""")
+            if "hidden" not in model_cols:
+                db.execute("ALTER TABLE models ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+            # Normalize both legacy backend capabilities and API-key permissions to endpoint IDs.
+            for table, field, ident in (("models", "endpoints", "rowid"), ("api_keys", "capabilities", "id")):
+                for row in db.execute(f"SELECT {ident},{field} FROM {table}").fetchall():
+                    try:
+                        value = json.dumps(normalize(json.loads(row[field])))
+                    except (ValueError, TypeError):
+                        continue
+                    if value != row[field]:
+                        db.execute(f"UPDATE {table} SET {field}=? WHERE {ident}=?", (value,row[ident]))
             # Safe in-place schema update for existing SQLite databases.
             cols = {r[1] for r in db.execute("PRAGMA table_info(api_keys)")}
             if "expires_at" not in cols:
@@ -129,11 +146,15 @@ class Store:
 
     def backends(self):
         with self.db() as db:
-            return [dict(x) for x in db.execute("SELECT * FROM backends ORDER BY id")]
+            rows = [dict(x) for x in db.execute("SELECT * FROM backends ORDER BY id")]
+            for row in rows:
+                found = db.execute("SELECT endpoints FROM models WHERE backend_id=?", (row["id"],)).fetchall()
+                row["capabilities"] = json.dumps(sorted(set(e for r in found for e in json.loads(r["endpoints"]))))
+            return rows
 
     def models(self):
         with self.db() as db:
-            return [dict(x) for x in db.execute("SELECT models.*,backends.capabilities,backends.enabled AS backend_enabled FROM models JOIN backends ON backends.id=models.backend_id ORDER BY models.public_id")]
+            return [dict(x) for x in db.execute("SELECT models.*,backends.enabled AS backend_enabled FROM models JOIN backends ON backends.id=models.backend_id ORDER BY models.public_id")]
 
     def keys(self):
         with self.db() as db:
@@ -152,9 +173,9 @@ class Store:
         return token
 
     def allowed(self, key: dict, cap: str, model: str | None) -> bool:
-        caps = json.loads(key["capabilities"])
+        caps = normalize(json.loads(key["capabilities"]))
         mods = json.loads(key["models"])
-        return ("*" in caps or cap in caps) and (model is None or "*" in mods or model in mods)
+        return ("*" in caps or ROUTES.get(cap, cap) in caps) and (model is None or "*" in mods or model in mods)
 
     def discover(self, backend_id: str, model_ids: set[str]):
         with self.db() as db:
@@ -169,7 +190,7 @@ class Store:
                     public_id = mid
                     if db.execute("SELECT 1 FROM models WHERE public_id=?", (mid,)).fetchone():
                         public_id = f"{backend_id}::{mid}"
-                    db.execute("INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual) VALUES (?,?,?,?,1,0)", (backend_id, mid, public_id, 0))
+                    db.execute("INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual,endpoints) VALUES (?,?,?,?,1,0,?)", (backend_id, mid, public_id, 0, json.dumps([])))
 
     def log(self, key_id: int, cap: str, model: str | None, status: int, elapsed_ms: int):
         with self.db() as db:

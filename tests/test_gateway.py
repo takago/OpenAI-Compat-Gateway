@@ -46,7 +46,7 @@ async def test_ui_backend_key_alias_acl_and_stream(app):
             assert 'api_key' not in state['backends'][0]
             r=await c.post('/admin/api/discover',headers=headers)
             assert r.status_code==200
-            r=await c.patch('/admin/api/models',headers=headers,json={'backend_id':'ollama-a','upstream_id':'llm-main','public_id':'local-llm','published':True})
+            r=await c.patch('/admin/api/models',headers=headers,json={'backend_id':'ollama-a','upstream_id':'llm-main','public_id':'local-llm','published':True,'endpoints':['POST /v1/chat/completions']})
             assert r.status_code==200
             r=await c.post('/admin/api/keys',headers=headers,json={'name':'student','capabilities':['chat'],'models':['local-llm'],'expires_at':None})
             assert r.status_code==200
@@ -129,7 +129,7 @@ async def test_manual_model_without_models_endpoint_and_https_ca(app):
             r=await c.post('/admin/api/backends',headers=h,json={'id':'local','url':'http://gpu.local/v1','capabilities':['chat'],'discover':True})
             assert r.status_code==200 and r.json()['discovery']['status']=='error',r.text
             assert '/openapi.json' not in paths
-            r=await c.post('/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'custom-model','public_id':'public-model','published':True})
+            r=await c.post('/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'custom-model','public_id':'public-model','published':True,'endpoints':['POST /v1/chat/completions']})
             assert r.status_code==200,r.text
             key=(await c.post('/admin/api/keys',headers=h,json={'name':'test','capabilities':['chat'],'models':['public-model']})).json()['key']
             auth={'authorization':'Bearer '+key}

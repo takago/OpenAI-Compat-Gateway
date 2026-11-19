@@ -42,23 +42,28 @@ Features include unified `/v1/models`, per-key ACL and expiration, SSE streaming
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
 
-## Administration improvements (v0.3.1)
+## Administration and model-centric routing (v0.4.0)
 
-- Select backend capabilities using checkboxes. Saving a backend immediately tries OpenAI-compatible `/v1/models` discovery and reports successes or detailed errors.
-- Refresh every backend explicitly; publish discovered models using checkboxes and batch save. Discovered models remain private by default.
-- Copy an API key at issue or rotation time. Previously issued secrets cannot be displayed again because only their hashes are stored. Rotation revokes the old secret; keys can be deleted or their permissions and expiration modified.
-- Existing SQLite data is preserved. Back up the database before installing an update with `sudo ./install.sh`.
+The dashboard has four tabs: Backends, Models, API Keys, Usage.
 
-### Manual model registration / モデルの手動登録
+- **Backends:** Register a `/v1` URL and optional upstream API key. Capabilities are *derived* from the endpoints configured on models attached to that backend. Model discovery via `GET /v1/models` is optional. Run a connection diagnostic using safe GET requests for `/v1/models` and `/healthz`; missing discovery is not proof that an API is down.
+- **Models:** Auto-discover or manually add a model; configure its public alias, published state, and supported endpoints as explicit `POST /v1/...` selections. Newly discovered models default to unpublished with no endpoints. Hide/show only affects the admin list. Unpublishing blocks API use and removes it from `/v1/models`. Deletion removes the registration; deleted discovered models do not silently reappear.
+- **API Keys:** Generate time-limited tokens, constrain exact endpoints and models, revoke, rotate or delete. Secrets are only shown when issued/rotated.
+- **Usage:** View request statistics and export/restore the SQLite configuration. Restore requires the current administrator password and service restart. **Backups contain upstream secrets; handle them as sensitive.**
 
-If a backend does not provide `GET /v1/models`, turn off model auto-discovery for that backend and register the model in **Admin → Model Management → Add model manually**. Specify the backend, the exact upstream model ID, and an optional public alias. A manual model remains routable without `/v1/models`. API capabilities are always selected manually using checkboxes.
+Model endpoint permissions are applied at routing time, including for SSE streaming and multipart image/audio requests. Video job read/delete is protected by the video endpoint permission and the owning API key. Legacy stored capabilities are migrated in-place to endpoint identifiers; back up the SQLite database before updating.
 
-## HTTPS certificates
+To create a consistent backup before installing a version with database schema changes:
 
-`gateway.py` sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` on Linux. Certificate verification remains enabled.
+```bash
+sudo systemctl stop openai-compat-gateway
+sudo install -m 600 /var/lib/openai-compat-gateway/gateway.sqlite3 \
+  /var/lib/openai-compat-gateway/gateway.sqlite3.pre-v0.4.0
+sudo systemctl start openai-compat-gateway
+```
 
-Model removal: Administrators can delete manually added and discovered models. Deleted discovered IDs are excluded from future refreshes; manually adding the model again restores it. Editing the public model name does not change the upstream model ID.
+## HTTPS certificate trust
 
-## Admin dashboard (v0.3.6)
+`gateway.py` configures `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` as requested for the deployment environment. HTTPS certificate verification stays enabled; this does not automatically fix an incomplete certificate chain.
 
-The admin interface has four tabs: **Backends**, **Models**, **API Keys**, and **Usage**. Changing tabs does not automatically refresh data or discard unsaved form inputs. Model discovery and its status are shown in the Models tab. Project attribution and the GitHub link appear in the footer.
+MIT License. Copyright (c) 2026 TAKAGO LAB.

@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from management import CAPABILITIES, Store, password_check, validate_url
+from endpoints import ROUTES, ENDPOINTS, normalize
 
 LOG = logging.getLogger("compat_gateway")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -164,7 +165,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         result=[]
         for m in store.models():
             if m["published"] and m["seen"] and m["backend_enabled"]:
-                caps=json.loads(m["capabilities"])
+                caps=json.loads(m["endpoints"])
                 if any(store.allowed(key,cap,m["public_id"]) for cap in caps):
                     result.append({"id":m["public_id"],"object":"model","created":0,"owned_by":m["backend_id"]})
         return result
@@ -233,7 +234,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             await refresh_all()
             candidates=[]
             for m in store.models():
-                if m["published"] and m["seen"] and m["backend_enabled"] and cap in json.loads(m["capabilities"]):
+                if m["published"] and m["seen"] and m["backend_enabled"] and ROUTES[cap] in json.loads(m["endpoints"]):
                     if model is None or m["public_id"]==model:
                         candidates.append(m)
             if model is not None:
@@ -343,7 +344,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def admin_state(request:Request):
         admin_guard(request)
         token=request.cookies.get("ocg_session","")
-        return {"csrf":session_csrf(session_secret,token),"backends":[{k:v for k,v in b.items() if k != "api_key"} for b in store.backends()],"models":store.models(),"keys":store.keys(),"metrics":store.metrics()}
+        return {"csrf":session_csrf(session_secret,token),"endpoints":sorted(ENDPOINTS),"backends":[{k:v for k,v in b.items() if k != "api_key"} for b in store.backends()],"models":store.models(),"keys":store.keys(),"metrics":store.metrics()}
 
     @app.post("/admin/api/logout")
     async def logout(request:Request):
@@ -370,11 +371,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
             url=validate_url(data["url"])
         except (ValueError,KeyError) as exc:
             raise HTTPException(400,str(exc))
-        caps=data.get("capabilities",[])
-        if not isinstance(caps,list) or not set(caps)<=CAPABILITIES:
-            raise HTTPException(400,"Invalid capabilities")
-        if not caps:
-            raise HTTPException(400,"Select at least one capability")
+        # API capabilities belong to individual models, never to backends.
+        caps=[]
         direct_key=data.get("api_key", "")
         if not isinstance(direct_key,str) or len(direct_key)>4096:
             raise HTTPException(400,"Invalid backend API key")
@@ -411,13 +409,17 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if not isinstance(public, str) or not public.strip() or len(public) > 200:
             raise HTTPException(400, "Invalid public model ID")
         try:
+            endpoints = normalize(data.get("endpoints", []))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        try:
             with store.db() as db:
                 if db.execute("SELECT 1 FROM backends WHERE id=?", (bid,)).fetchone() is None:
                     raise HTTPException(404, "Backend not found")
                 db.execute("DELETE FROM excluded_models WHERE backend_id=? AND upstream_id=?", (bid, upstream))
-                db.execute("""INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual)
-                              VALUES(?,?,?,?,1,1)""",
-                           (bid, upstream, public, int(bool(data.get("published", False)))))
+                db.execute("""INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual,endpoints)
+                              VALUES(?,?,?,?,1,1,?)""",
+                           (bid, upstream, public, int(bool(data.get("published", False))),json.dumps(endpoints)))
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409, "Model ID already exists; edit the existing model instead")
         return {"ok": True}
@@ -447,13 +449,67 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if not isinstance(public,str) or not public or len(public)>200:
             raise HTTPException(400,"Invalid public model ID")
         try:
+            endpoints = normalize(data.get("endpoints", [])) if "endpoints" in data else None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        try:
             with store.db() as db:
-                cur=db.execute("UPDATE models SET public_id=?,published=? WHERE backend_id=? AND upstream_id=?",(public,int(bool(data.get("published",False))),bid,upstream))
+                current=db.execute("SELECT * FROM models WHERE backend_id=? AND upstream_id=?",(bid,upstream)).fetchone()
+                if not current:
+                    raise HTTPException(404,"Model not found")
+                values = json.dumps(endpoints) if endpoints is not None else current["endpoints"]
+                hidden = int(bool(data["hidden"])) if "hidden" in data else current["hidden"]
+                cur=db.execute("UPDATE models SET public_id=?,published=?,endpoints=?,hidden=? WHERE backend_id=? AND upstream_id=?",(public,int(bool(data.get("published",current["published"]))),values,hidden,bid,upstream))
                 if not cur.rowcount:
                     raise HTTPException(404,"Model not found")
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409,"Public model ID already exists")
         return {"ok":True}
+
+    @app.patch("/admin/api/models/batch")
+    async def change_models_batch(request: Request):
+        admin_guard(request, True)
+        data=await request.json()
+        if not isinstance(data,list) or len(data)>2000:
+            raise HTTPException(400,"Expected model updates array")
+        validated=[]
+        seen=set()
+        for item in data:
+            if not isinstance(item,dict):
+                raise HTTPException(400,"Invalid model update")
+            bid, upstream, public = item.get("backend_id"),item.get("upstream_id"),item.get("public_id")
+            if not all(isinstance(x,str) and x for x in (bid,upstream,public)) or len(public)>200:
+                raise HTTPException(400,"Invalid model ID")
+            pair=(bid,upstream)
+            if pair in seen:
+                raise HTTPException(400,"Duplicate model update")
+            seen.add(pair)
+            try:
+                endpoints=normalize(item.get("endpoints",[]))
+            except ValueError as exc:
+                raise HTTPException(400,str(exc))
+            validated.append((bid,upstream,public,int(bool(item.get("published",False))),json.dumps(endpoints)))
+        try:
+            with store.db() as db:
+                for bid,upstream,public,published,endpoints in validated:
+                    if db.execute("SELECT 1 FROM models WHERE backend_id=? AND upstream_id=?",(bid,upstream)).fetchone() is None:
+                        raise HTTPException(404,"Unknown model: "+bid+" / "+upstream)
+                    # Handle swapping aliases in two phases to prevent temporary UNIQUE conflicts.
+                # Public aliases must not collide with other models, including unmodified rows.
+                wanted=[v[2] for v in validated]
+                if len(set(wanted)) != len(wanted):
+                    raise HTTPException(409,"Duplicate public model IDs")
+                for public in wanted:
+                    row=db.execute("SELECT backend_id,upstream_id FROM models WHERE public_id=?",(public,)).fetchone()
+                    if row and (row["backend_id"],row["upstream_id"]) not in seen:
+                        raise HTTPException(409,"Public model ID already exists: "+public)
+                for bid,upstream,public,published,endpoints in validated:
+                    db.execute("UPDATE models SET public_id=? WHERE backend_id=? AND upstream_id=?",(secrets.token_urlsafe(24),bid,upstream))
+                for bid,upstream,public,published,endpoints in validated:
+                    db.execute("UPDATE models SET public_id=?,published=?,endpoints=? WHERE backend_id=? AND upstream_id=?",(public,published,endpoints,bid,upstream))
+        except __import__("sqlite3").IntegrityError:
+            raise HTTPException(409,"Public model ID already exists")
+        return {"ok":True,"updated":len(validated)}
 
     def parse_expiration(value):
         # API contract: null means never expires; integer means Unix seconds (UTC).
@@ -472,10 +528,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
         name=data.get("name","").strip()
         caps=data.get("capabilities",[])
         models=data.get("models",[])
-        if not name or len(name)>100 or not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES|{"*"} or not isinstance(models,list) or not models or not all(isinstance(m,str) for m in models):
+        if not name or len(name)>100 or not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES|ENDPOINTS|{"*"} or not isinstance(models,list) or not models or not all(isinstance(m,str) for m in models):
             raise HTTPException(400,"Invalid key settings")
         try:
-            token=store.add_key(name,caps,models,parse_expiration(data.get("expires_at")))
+            token=store.add_key(name,normalize(caps),models,parse_expiration(data.get("expires_at")))
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409,"Key name exists")
         return {"key":token,"message":"Copy this key now: it will not be shown again"}
@@ -507,7 +563,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         data=await request.json()
         caps=data.get("capabilities")
         models=data.get("models")
-        if caps is not None and (not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES|{"*"}):
+        if caps is not None and (not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES|ENDPOINTS|{"*"}):
             raise HTTPException(400,"Invalid capabilities")
         if models is not None and (not isinstance(models,list) or not models or not all(isinstance(x,str) for x in models)):
             raise HTTPException(400,"Invalid model restrictions")
@@ -516,8 +572,78 @@ def create_app(config_path: str | None = None) -> FastAPI:
             if row is None:
                 raise HTTPException(404,"Unknown key")
             expires_at = parse_expiration(data["expires_at"]) if "expires_at" in data else row["expires_at"]
-            db.execute("UPDATE api_keys SET enabled=?,capabilities=?,models=?,expires_at=? WHERE id=?",(int(bool(data.get("enabled",row["enabled"]))),json.dumps(caps if caps is not None else json.loads(row["capabilities"])),json.dumps(models if models is not None else json.loads(row["models"])),expires_at,key_id))
+            db.execute("UPDATE api_keys SET enabled=?,capabilities=?,models=?,expires_at=? WHERE id=?",(int(bool(data.get("enabled",row["enabled"]))),json.dumps(normalize(caps) if caps is not None else json.loads(row["capabilities"])),json.dumps(models if models is not None else json.loads(row["models"])),expires_at,key_id))
         return {"ok":True}
+
+    @app.post("/admin/api/backends/{backend_id}/diagnose")
+    async def diagnose_backend(backend_id: str, request: Request):
+        admin_guard(request, True)
+        row=next((b for b in store.backends() if b["id"]==backend_id),None)
+        if row is None:
+            raise HTTPException(404,"Backend not found")
+        result={"backend":backend_id,"checks":[]}
+        for suffix in ("/models", "/healthz"):
+            url=row["url"]+suffix if suffix=="/models" else row["url"][:-3]+suffix
+            try:
+                key=upstream_key(row)
+                response=await app.state.client.get(url,headers={"authorization":"Bearer "+key} if key else {},timeout=6)
+                status=response.status_code
+                description=("OK" if 200<=status<300 else "Authentication required" if status in (401,403) else "Endpoint not available" if status==404 else "HTTP "+str(status))
+                result["checks"].append({"path":suffix,"status":status,"message":description})
+            except httpx.ConnectError as exc:
+                result["checks"].append({"path":suffix,"status":None,"message":"TLS / connection error: "+str(exc)[:180]})
+            except httpx.TimeoutException:
+                result["checks"].append({"path":suffix,"status":None,"message":"Timeout"})
+            except httpx.HTTPError as exc:
+                result["checks"].append({"path":suffix,"status":None,"message":str(exc)[:180]})
+        return result
+
+    @app.get("/admin/api/backup")
+    async def download_backup(request: Request):
+        admin_guard(request)
+        import sqlite3, tempfile
+        from fastapi.responses import FileResponse
+        fd, path=tempfile.mkstemp(suffix=".sqlite3",prefix="ocg-backup-")
+        os.close(fd)
+        try:
+            with store.db() as source, sqlite3.connect(path) as destination:
+                source.backup(destination)
+        except Exception:
+            os.unlink(path)
+            raise
+        return FileResponse(path, filename="openai-compat-gateway.sqlite3", media_type="application/octet-stream", background=BackgroundTask(lambda: os.path.exists(path) and os.unlink(path)))
+
+    @app.post("/admin/api/restore")
+    async def restore_backup(request: Request):
+        admin_guard(request,True)
+        import sqlite3, tempfile
+        # Password is required again for this potentially destructive operation.
+        password=request.headers.get("x-admin-password","")
+        if not password_check(password,store.setting("admin_password_hash") or ""):
+            raise HTTPException(403,"Administrator password required")
+        raw=await request.body()
+        if len(raw)>64*1024*1024:
+            raise HTTPException(413,"Backup too large")
+        fd,path=tempfile.mkstemp(suffix=".sqlite3",prefix="ocg-restore-")
+        try:
+            with os.fdopen(fd,"wb") as f: f.write(raw)
+            with sqlite3.connect(path) as source:
+                if source.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
+                    raise ValueError("Invalid SQLite backup")
+                required={"settings","backends","models","api_keys","video_jobs"}
+                existing={x[0] for x in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if not required<=existing or not source.execute("SELECT value FROM settings WHERE name='admin_password_hash'").fetchone():
+                    raise ValueError("Not a valid gateway backup")
+                # Restore atomically via SQLite backup API; original DB is preserved on validation errors.
+                with store.db() as destination:
+                    source.backup(destination)
+            cached.clear()
+        except (sqlite3.DatabaseError,ValueError) as exc:
+            raise HTTPException(400,str(exc))
+        finally:
+            os.unlink(path)
+        # Existing sessions may be invalid after restore; a service restart is recommended.
+        return {"ok":True,"message":"Restored. Restart the gateway service before further use."}
 
     return app
 
