@@ -77,3 +77,7 @@ Newly discovered models begin with **no endpoint assignments**. The gateway does
 ### Deleting and rediscovering models
 
 Deleting an automatically discovered model removes only its gateway registration. Refreshing `/v1/models` restores it if the upstream still lists it, initially unpublished, visible, and with no enabled endpoints. Manually added models are not automatically restored. Existing model settings remain unchanged. The Edit action sits in the endpoint column.
+
+## Administration UI (v0.5.0)
+
+The four tabs are Backends, Models, API Keys, and Usage. Lists are read-only summaries; use **Edit** on an individual item for a single Save/Cancel form. Model editing combines public model ID, visibility to API clients (publication), and endpoint permissions. Hide affects only the admin list, while Delete removes the gateway registration. Models can be discovered again if their upstream `/v1/models` reports them. Model search and backend filtering are available. Existing API and database formats remain unchanged.

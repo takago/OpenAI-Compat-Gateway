@@ -34,11 +34,14 @@ def test_existing_forms_preserved():
         assert f'id="{identifier}"' in text
 
 
-def test_model_edit_position_and_no_diagnostics():
+def test_ui_uses_list_and_edit_separation():
     page = HTML.read_text(encoding="utf-8")
-    assert "endpointHeader.append(endpointLabel);capcell.append(endpointHeader,tags)" in page
-    assert "actions.append(edit,hide,del)" in page
-    assert "modrows.push(detailRow)" in page
-    assert "detailCell.colSpan=7" in page
+    assert "function modelEditor(m,card)" in page
+    assert "function backendEditor(b,card)" in page
+    assert "function editKey(k,card)" in page
+    assert "公開モデルID" in page
+    assert "E('model-search').oninput=render" in page
+    assert "actions.append(actionButton('編集'" in page
+    assert "公開・モデル名をまとめて保存" not in page
     assert "接続診断" not in page
     assert "diagnose_backend" not in (HTML.parent / "gateway.py").read_text(encoding="utf-8")

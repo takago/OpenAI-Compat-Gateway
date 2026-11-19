@@ -25,17 +25,15 @@ async def test_edit_endpoints_without_changing_alias_or_publication(tmp_path, mo
             assert m['hidden'] == 1
             assert json.loads(m['endpoints']) == ['POST /v1/chat/completions']
 
-def test_model_page_has_compact_labels_and_edit_controls():
+def test_model_page_has_compact_labels_and_single_edit_form():
     from pathlib import Path
     page = (Path(__file__).resolve().parent.parent / 'admin.html').read_text()
-    assert "node('button','編集')" in page
-    assert "endpoint-tag" in page
-    assert "const detailRow=node('tr')" in page
-    assert "endpointHeader.append(endpointLabel);capcell.append(endpointHeader,tags)" in page
-    assert "actions.append(edit,hide,del)" in page
-    assert "modrows.push(detailRow)" in page
-    assert "detailCell.colSpan=7" in page
-    assert "makeChecks(checks,CAPS" in page
+    assert "endpointTags(body,arr(m.endpoints))" in page
+    assert "function modelEditor(m,card)" in page
+    assert "public_id:alias.value.trim()" in page
+    assert "endpoints:checkedIn(checks)" in page
+    assert "modelEditor(m,card)" in page
+    assert "className='editor-card'" in page
 
 @pytest.mark.asyncio
 async def test_deleted_detected_model_returns_only_after_refresh(tmp_path, monkeypatch):

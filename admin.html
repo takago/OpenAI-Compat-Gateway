@@ -1,4 +1,5 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenAI-Compat-Gateway 管理</title>
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><title>OpenAI-Compat-Gateway 管理</title>
 <style>
 :root{font-family:system-ui,-apple-system,sans-serif;color-scheme:light dark}body{max-width:1200px;margin:24px auto;padding:0 16px;line-height:1.5}header,.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:1.4rem}h2{font-size:1.08rem;margin:0 0 12px}section{border:1px solid #8885;border-radius:12px;padding:18px;margin:16px 0}label{display:block;font-size:.9rem;margin:8px 0}input,select,button{font:inherit;padding:7px;border:1px solid #8888;border-radius:6px}input[type=text],input[type=url],input[type=password]{width:100%;max-width:560px;box-sizing:border-box}input[type=checkbox]{width:17px;height:17px;vertical-align:middle}button{cursor:pointer}button.primary{background:#2168ab;color:#fff;border-color:#2168ab}button.danger{color:#c44}button:disabled{opacity:.5;cursor:default}.muted,small{opacity:.7}table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;text-align:left;border-bottom:1px solid #8884;font-size:.88rem;overflow-wrap:anywhere;vertical-align:middle}.scroll{overflow:auto}.hidden{display:none!important}#app{display:none}.chips{display:flex;flex-wrap:wrap;gap:7px}.chips label{display:inline-flex;align-items:center;gap:5px;margin:0;padding:6px 9px;background:#8882;border-radius:7px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.toolbar>*{flex:0 0 auto}.panel{background:#8881;padding:12px;border-radius:9px;margin:10px 0}.key-box{padding:12px;border:1px solid #3a9a7d;border-radius:8px;word-break:break-all}.key-box code{display:block;padding:10px;background:#8882;margin:7px 0}#message{white-space:pre-wrap;min-height:1.4em}summary{cursor:pointer;font-weight:600;margin:8px 0}details{margin:12px 0}td .toolbar{gap:5px}td button{font-size:.8rem;padding:5px}select{max-width:100%}.endpoint-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}.endpoint-header button{padding:3px 9px;font-size:.8rem}.model-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:160px}.model-editor-row td{padding:0 7px 12px;border-bottom:1px solid #8885}.model-editor-row .endpoint-editor{margin:0;padding:12px;min-width:0}
 .tab-nav{display:flex;gap:5px;flex-wrap:wrap;border-bottom:1px solid #8885;margin:16px 0 0;padding:0 0 7px}
@@ -14,24 +15,62 @@
 .endpoint-editor{margin-top:10px;padding:12px;border:1px solid #8885;border-radius:9px;background:#8881;min-width:240px}
 .endpoint-editor .chips{margin:10px 0}.endpoint-editor .toolbar{justify-content:flex-end}
 
+
+
+/* v0.5: consistent list / edit separation */
+:root{--accent:#245b91;--line:#8884;--subtle:#8881}
+body{max-width:1180px;margin:18px auto;padding:0 20px}
+h1{letter-spacing:-.025em;font-size:1.5rem;margin:6px 0}h2{margin:0 0 8px}
+section{border:0;padding:0;margin:23px 0}
+.tab-panel{margin-top:23px}
+.tab-nav{gap:12px;padding:0;border-bottom:1px solid var(--line)}
+.tab-nav button{border-radius:0;padding:13px 9px;border-bottom:3px solid transparent}
+.tab-nav button[aria-selected=true]{background:transparent;color:inherit;border-bottom-color:var(--accent)}
+.list-region{display:grid;gap:10px;margin-top:14px}
+.item-card{border:1px solid var(--line);border-radius:11px;padding:15px 17px;background:transparent;min-width:0}
+.item-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.item-name{font-weight:700;font-size:1rem;overflow-wrap:anywhere}
+.item-sub{color:inherit;opacity:.65;font-size:.82rem;overflow-wrap:anywhere;margin-top:4px}
+.item-body{margin:13px 0 4px}
+.item-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:14px}
+.item-actions button{font-size:.83rem;padding:6px 11px}
+.item-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.item-tag{display:inline-block;border:1px solid var(--line);border-radius:5px;background:var(--subtle);padding:3px 7px;font-size:.79rem;overflow-wrap:anywhere}
+.item-label{font-size:.77rem;opacity:.7}
+.status{font-size:.78rem;border-radius:5px;border:1px solid var(--line);padding:3px 8px;white-space:nowrap}
+.status.off{opacity:.65}.status.on{border-color:#3d9665;color:#298858}
+.editor-card{background:var(--subtle);border:1px solid var(--line);border-radius:9px;padding:15px;margin:14px 0 0}
+.editor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.editor-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px}
+.editor-card label{margin:7px 0}
+.editor-card input[type=text],.editor-card input[type=url]{width:100%;max-width:none}
+.inline-label{display:inline-flex;align-items:center;gap:7px}
+.count{font-size:.82rem;margin:0 0 6px;display:block}
+.toolbar{margin:14px 0}.toolbar label{margin:0}
+#model-search{width:230px;max-width:100%}
+#backend-details,#key-details,#panel-models details{border:1px solid var(--line);border-radius:10px;padding:10px 15px}
+#backend-details[open],#key-details[open],#panel-models details[open]{padding-bottom:17px}
+#message:not(:empty){padding:9px 12px;background:var(--subtle);border-radius:7px}
+#message:empty{min-height:0;margin:0}
+@media(max-width:700px){body{padding:0 12px}.item-card{padding:12px}.editor-grid{grid-template-columns:1fr}.toolbar{align-items:flex-start}}
 </style></head><body>
-<header><div><h1>OpenAI-Compat-Gateway</h1><span class="muted" id="app-subtitle" style="display:none">管理ダッシュボード</span></div><button id="logout" style="display:none">ログアウト</button></header><p id="message" role="status" aria-live="polite"></p>
-<section id="setup" class="hidden"><h2>初回セットアップ</h2><p>管理者パスワードを登録してください．初回登録前は誰でも登録可能です．</p><form id="setup-form"><label>パスワード（12文字以上）<input id="setup-password" type="password" minlength="12" required></label><label>確認<input id="setup-confirm" type="password" minlength="12" required></label><button class="primary">管理者を登録</button></form></section>
-<section id="login"><h2>管理者ログイン</h2><form id="login-form"><label>パスワード<input id="password" type="password" required></label><button class="primary">ログイン</button></form></section>
+<header><div><h1>OpenAI-Compat-Gateway</h1><span class="muted" id="app-subtitle" style="display:none">管理</span></div><button id="logout" style="display:none">ログアウト</button></header><p aria-live="polite" id="message" role="status"></p>
+<section class="hidden" id="setup"><h2>初回セットアップ</h2><p>管理者パスワードを登録してください．初回登録前は誰でも登録可能です．</p><form id="setup-form"><label>パスワード（12文字以上）<input id="setup-password" minlength="12" required="" type="password"/></label><label>確認<input id="setup-confirm" minlength="12" required="" type="password"/></label><button class="primary">管理者を登録</button></form></section>
+<section id="login"><h2>管理者ログイン</h2><form id="login-form"><label>パスワード<input id="password" required="" type="password"/></label><button class="primary">ログイン</button></form></section>
 <div id="app">
-<nav class="tab-nav" role="tablist" aria-label="管理機能">
-<button type="button" id="tab-backends" role="tab" aria-selected="true" aria-controls="panel-backends" tabindex="0" data-tab="backends">バックエンド</button>
-<button type="button" id="tab-models" role="tab" aria-selected="false" aria-controls="panel-models" tabindex="-1" data-tab="models">モデル</button>
-<button type="button" id="tab-keys" role="tab" aria-selected="false" aria-controls="panel-keys" tabindex="-1" data-tab="keys">APIキー</button>
-<button type="button" id="tab-usage" role="tab" aria-selected="false" aria-controls="panel-usage" tabindex="-1" data-tab="usage">利用状況</button>
+<nav aria-label="管理機能" class="tab-nav" role="tablist">
+<button aria-controls="panel-backends" aria-selected="true" data-tab="backends" id="tab-backends" role="tab" tabindex="0" type="button">バックエンド</button>
+<button aria-controls="panel-models" aria-selected="false" data-tab="models" id="tab-models" role="tab" tabindex="-1" type="button">モデル</button>
+<button aria-controls="panel-keys" aria-selected="false" data-tab="keys" id="tab-keys" role="tab" tabindex="-1" type="button">APIキー</button>
+<button aria-controls="panel-usage" aria-selected="false" data-tab="usage" id="tab-usage" role="tab" tabindex="-1" type="button">利用状況</button>
 </nav>
-<section class="tab-panel" id="panel-backends" role="tabpanel" aria-labelledby="tab-backends"><div class="row"><h2>バックエンド</h2></div><div id="backend-list" class="scroll"></div>
-<details id="backend-details"><summary>＋ バックエンドを追加・編集</summary><form id="backend-form"><label>管理用ID<input id="backend-id" required placeholder="ollama-01" pattern="[A-Za-z0-9_-]+"></label><label>API URL（/v1まで）<input id="backend-url" type="url" required placeholder="http://192.168.1.10:11434/v1"></label><p class="muted">対応APIは所属モデルのエンドポイント設定から自動集約します．</p><label>バックエンドAPIキー（変更しない場合は空欄）<input id="backend-apikey" type="password" autocomplete="new-password"></label><label><input id="backend-enabled" type="checkbox" checked> 有効</label><label><input id="backend-discover" type="checkbox" checked> /v1/modelsから自動取得</label><div class="toolbar"><button class="primary">保存</button><button type="button" id="backend-reset">入力をクリア</button></div></form></details></section>
-<section class="tab-panel hidden" id="panel-models" role="tabpanel" aria-labelledby="tab-models"><div class="row"><h2>モデル管理</h2><span class="muted" id="model-count"></span></div><div class="toolbar"><button id="refresh" class="primary">モデル一覧を再取得</button></div><div id="discover-status"></div><p class="muted">/v1/modelsから自動取得できます．対応していないサーバでは下のフォームから手動登録してください．新規モデルは非公開・対応エンドポイント未設定です．「編集」からモデルごとに対応APIを選択してください．誤登録モデルは「削除」で消せます．削除した自動検出モデルは，バックエンドに存在すれば「モデル一覧を再取得」で再登録されます（非公開・対応エンドポイント未設定）．手動登録モデルは必要に応じて手動で追加してください．</p><details><summary>＋ モデルを手動追加</summary><form id="manual-model-form"><label>バックエンド<select id="manual-model-backend" required></select></label><label>バックエンド側のモデルID<input id="manual-model-upstream" required placeholder="model-name"></label><label>公開モデル名（省略時は同じID）<input id="manual-model-public" placeholder="model-name"></label><label>対応エンドポイント</label><div id="manual-model-endpoints" class="chips"></div><label><input type="checkbox" id="manual-model-published"> 追加時に公開する</label><button class="primary">モデルを追加</button></form></details><div class="toolbar"><label>バックエンド <select id="model-filter"><option value="">すべて</option></select></label><label><input type="checkbox" id="show-hidden"> 非表示モデルも表示</label><button id="model-all">表示中をすべて選択</button><button id="model-none">表示中をすべて解除</button><button id="model-save" class="primary">公開・モデル名をまとめて保存</button></div><div id="model-list" class="scroll"></div></section>
-<section class="tab-panel hidden" id="panel-keys" role="tabpanel" aria-labelledby="tab-keys"><h2>APIキー・権限</h2><p class="muted">秘密キーは安全のためハッシュ保存します．発行または再発行時に全文を表示します．紛失した場合は再発行してください．</p><div id="key-reveal" class="key-box hidden"><strong id="key-reveal-title">発行したAPIキー</strong><code id="key-secret"></code><button id="key-copy" class="primary">キーをコピー</button><button id="key-hide">表示を閉じる</button><small>この画面を閉じると，キー全文は再表示できません．</small></div><div id="key-list" class="scroll"></div>
-<details id="key-details"><summary>＋ 新しいAPIキーを発行</summary><form id="key-form"><label>名前<input id="key-name" required placeholder="students"></label><label>許可するAPIエンドポイント</label><div class="toolbar"><label><input type="checkbox" id="key-all-caps"> すべての機能</label></div><div id="key-capabilities" class="chips"></div><label>利用できるモデル</label><div class="toolbar"><label><input type="checkbox" id="key-all-models" checked> すべての公開モデル</label></div><div id="key-model-options" class="chips"></div><label>有効期限<select id="key-expiry"><option value="none">無期限</option><option value="7">7日</option><option value="30">30日</option><option value="90">90日</option><option value="custom">日時指定（JST）</option></select></label><label id="key-date-wrap" class="hidden">終了日時（JST）<input id="key-date" type="datetime-local"></label><button class="primary">APIキーを発行</button></form></details></section>
-<section class="tab-panel hidden" id="panel-usage" role="tabpanel" aria-labelledby="tab-usage"><h2>利用統計</h2><div id="metrics" class="scroll"></div><details><summary>設定のバックアップ・復元</summary><p class="muted">バックアップにはAPIキーのハッシュやバックエンドの認証情報が含まれます．厳重に保管してください．復元前に既存データをバックアップし，復元後はサービスを再起動してください．</p><button id="backup-download" type="button">SQLiteバックアップを保存</button><label>バックアップファイル（.sqlite3）<input id="backup-file" type="file" accept=".sqlite3,.db"></label><button id="backup-restore" type="button" class="danger">バックアップから復元</button></details></section></div>
-<footer class="site-footer"><p>OpenAI-Compat-Gateway · © 2026 TAKAGO LAB · Kanazawa Institute of Technology</p><p><a href="https://github.com/takago/OpenAI-Compat-Gateway" target="_blank" rel="noopener noreferrer">GitHub</a></p></footer>
+<section aria-labelledby="tab-backends" class="tab-panel" id="panel-backends" role="tabpanel"><div class="row"><h2>バックエンド</h2><span class="muted count" id="backend-count"></span></div><div class="list-region" id="backend-list"></div>
+<details id="backend-details"><summary>＋ バックエンドを追加</summary><form id="backend-form"><label>管理用ID<input id="backend-id" pattern="[A-Za-z0-9_-]+" placeholder="ollama-01" required=""/></label><label>API URL（/v1まで）<input id="backend-url" placeholder="http://192.168.1.10:11434/v1" required="" type="url"/></label><p class="muted">対応APIは所属モデルのエンドポイント設定から自動集約します．</p><label>バックエンドAPIキー（変更しない場合は空欄）<input autocomplete="new-password" id="backend-apikey" type="password"/></label><label><input checked="" id="backend-enabled" type="checkbox"/> 有効</label><label><input checked="" id="backend-discover" type="checkbox"/> /v1/modelsから自動取得</label><div class="toolbar"><button class="primary">保存</button><button id="backend-reset" type="button">入力をクリア</button></div></form></details></section>
+<section aria-labelledby="tab-models" class="tab-panel hidden" id="panel-models" role="tabpanel"><div class="row"><h2>モデル管理</h2><span class="muted" id="model-count"></span></div><div class="toolbar"><button class="primary" id="refresh">モデル一覧を再取得</button></div><div id="discover-status"></div><p class="muted">モデルは自動取得または手動追加できます．公開・エンドポイント・公開名は「編集」で設定します．削除した自動検出モデルは再取得で復元できます．</p><details><summary>＋ モデルを手動追加</summary><form id="manual-model-form"><label>バックエンド<select id="manual-model-backend" required=""></select></label><label>バックエンド側のモデルID<input id="manual-model-upstream" placeholder="model-name" required=""/></label><label>公開モデル名（省略時は同じID）<input id="manual-model-public" placeholder="model-name"/></label><label>対応エンドポイント</label><div class="chips" id="manual-model-endpoints"></div><label><input id="manual-model-published" type="checkbox"/> 追加時に公開する</label><button class="primary">モデルを追加</button></form></details><div class="toolbar"><label>モデルを検索 <input id="model-search" placeholder="モデル名・公開名" type="search"/></label><label>バックエンド <select id="model-filter"><option value="">すべて</option></select></label><label><input id="show-hidden" type="checkbox"/> 非表示モデルも表示</label></div><div class="list-region" id="model-list"></div></section>
+<section aria-labelledby="tab-keys" class="tab-panel hidden" id="panel-keys" role="tabpanel"><h2>APIキー・権限</h2><span class="muted count" id="key-count"></span><p class="muted">秘密キーは安全のためハッシュ保存します．発行または再発行時に全文を表示します．紛失した場合は再発行してください．</p><div class="key-box hidden" id="key-reveal"><strong id="key-reveal-title">発行したAPIキー</strong><code id="key-secret"></code><button class="primary" id="key-copy">キーをコピー</button><button id="key-hide">表示を閉じる</button><small>この画面を閉じると，キー全文は再表示できません．</small></div><div class="list-region" id="key-list"></div>
+<details id="key-details"><summary>＋ APIキーを発行</summary><form id="key-form"><label>名前<input id="key-name" placeholder="students" required=""/></label><label>許可するAPIエンドポイント</label><div class="toolbar"><label><input id="key-all-caps" type="checkbox"/> すべての機能</label></div><div class="chips" id="key-capabilities"></div><label>利用できるモデル</label><div class="toolbar"><label><input checked="" id="key-all-models" type="checkbox"/> すべての公開モデル</label></div><div class="chips" id="key-model-options"></div><label>有効期限<select id="key-expiry"><option value="none">無期限</option><option value="7">7日</option><option value="30">30日</option><option value="90">90日</option><option value="custom">日時指定（JST）</option></select></label><label class="hidden" id="key-date-wrap">終了日時（JST）<input id="key-date" type="datetime-local"/></label><button class="primary">APIキーを発行</button></form></details></section>
+<section aria-labelledby="tab-usage" class="tab-panel hidden" id="panel-usage" role="tabpanel"><h2>利用統計</h2><div class="scroll" id="metrics"></div><details><summary>設定のバックアップ・復元</summary><p class="muted">バックアップにはAPIキーのハッシュやバックエンドの認証情報が含まれます．厳重に保管してください．復元前に既存データをバックアップし，復元後はサービスを再起動してください．</p><button id="backup-download" type="button">SQLiteバックアップを保存</button><label>バックアップファイル（.sqlite3）<input accept=".sqlite3,.db" id="backup-file" type="file"/></label><button class="danger" id="backup-restore" type="button">バックアップから復元</button></details></section></div>
+<footer class="site-footer"><p>OpenAI-Compat-Gateway · © 2026 TAKAGO LAB · Kanazawa Institute of Technology</p><p><a href="https://github.com/takago/OpenAI-Compat-Gateway" rel="noopener noreferrer" target="_blank">GitHub</a></p></footer>
 <script>
 'use strict';let csrf='',state=null,visibleKey='',activeTab='backends';const E=id=>document.getElementById(id);
 const TAB_IDS=['backends','models','keys','usage'];
@@ -63,61 +102,97 @@ function table(headers,rows){const t=node('table'),h=node('tr');headers.forEach(
 async function api(path,method='GET',data){const headers={Accept:'application/json'};if(method!=='GET')headers['X-CSRF-Token']=csrf;if(data!==undefined)headers['Content-Type']='application/json';const r=await fetch('/admin/api/'+path,{method,headers,credentials:'same-origin',body:data===undefined?undefined:JSON.stringify(data)});let v;try{v=await r.json()}catch{v={detail:'Invalid server response'}}if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:JSON.stringify(v));return v}
 async function load(){try{const r=await api('setup-status');E('setup').classList.toggle('hidden',!r.needs_setup);if(r.needs_setup){E('login').classList.add('hidden');E('app').style.display='none';E('app-subtitle').style.display='none';E('app-subtitle').style.display='none';return}}catch(e){say(e.message)}try{state=await api('state');csrf=state.csrf;E('login').classList.add('hidden');E('app').style.display='block';E('app-subtitle').style.display='';E('logout').style.display='';switchTab(activeTab);render()}catch{E('login').classList.remove('hidden');E('app').style.display='none';E('app-subtitle').style.display='none';E('app-subtitle').style.display='none'}}
 async function act(fn,success='保存しました'){try{const result=await fn();await load();say(success);return result}catch(e){say('エラー: '+e.message);return null}}
-function render(){
-const backendRows=state.backends.map(b=>{const tr=node('tr');td(tr,b.id);td(tr,b.url);td(tr,arr(b.capabilities).join(' / ')||'登録モデルなし');td(tr,b.enabled?'有効':'停止');const c=node('td'),ed=node('button','編集'),del=node('button','削除');ed.onclick=()=>{E('backend-id').value=b.id;E('backend-url').value=b.url;E('backend-enabled').checked=!!b.enabled;E('backend-discover').checked=!!b.discover;E('backend-apikey').value='';E('backend-details').open=true;E('backend-details').scrollIntoView({behavior:'smooth',block:'start'})};del.className='danger';del.onclick=()=>{if(confirm(b.id+' を削除しますか？ 所属モデルも削除されます．'))act(()=>api('backends/'+encodeURIComponent(b.id),'DELETE'))};c.append(ed,del);tr.append(c);return tr});E('backend-list').replaceChildren(table(['バックエンド','URL','モデルから集約したAPI','状態','操作'],backendRows));
-E('manual-model-backend').replaceChildren(...state.backends.map(b=>new Option(b.id,b.id)));const filter=E('model-filter').value;E('model-filter').replaceChildren(new Option('すべて',''),...state.backends.map(b=>new Option(b.id,b.id)));E('model-filter').value=filter;
-const models=state.models.filter(m=>(!filter||m.backend_id===filter)&&(E('show-hidden').checked||!m.hidden));
-const modrows=[];
-for(const m of models){
- const tr=node('tr'),pub=node('input'),alias=node('input');
- const headingCell=node('td'),heading=node('div');heading.className='model-heading';
- const modelName=node('span',m.upstream_id),edit=node('button','編集');edit.type='button';
- edit.setAttribute('aria-expanded','false');edit.setAttribute('aria-label',m.upstream_id+' の対応エンドポイントを編集');
- heading.append(modelName);headingCell.append(heading);tr.append(headingCell);
- td(tr,m.backend_id);
- const aliasCell=node('td');alias.type='text';alias.value=m.public_id;
- alias.dataset.modelAlias='1';alias.dataset.backend=m.backend_id;alias.dataset.upstream=m.upstream_id;
- aliasCell.append(alias);tr.append(aliasCell);
- const capcell=node('td'),tags=node('div');tags.className='endpoint-tags';
- const existing=arr(m.endpoints);
- if(existing.length){for(const endpoint of existing){const tag=node('span',endpoint.replace(/^\w+\s+\//,''));tag.className='endpoint-tag';tag.title=endpoint;tags.append(tag)}}
- else{const missing=node('span','未設定');missing.className='muted';tags.append(missing)}
- const endpointHeader=node('div');endpointHeader.className='endpoint-header';const endpointLabel=node('span','対応エンドポイント');endpointLabel.className='muted';endpointHeader.append(endpointLabel);capcell.append(endpointHeader,tags);tr.append(capcell);
- const publish=node('td');pub.type='checkbox';pub.checked=!!m.published;pub.dataset.modelPublished='1';publish.append(pub);tr.append(publish);
- td(tr,m.manual?'手動登録':m.seen?'検出済':'現在未検出');
- const actions=node('td'),hide=node('button',m.hidden?'表示':'非表示'),del=node('button','削除');
- hide.onclick=()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,hidden:!m.hidden}),m.hidden?'表示しました':'管理一覧から非表示にしました');
- del.className='danger';del.onclick=()=>{const msg=m.manual?' を削除しますか？':' を削除しますか？ 再取得すればバックエンドから復元できます（非公開・エンドポイント未設定）．';if(confirm(m.public_id+msg))act(()=>api('models','DELETE',{backend_id:m.backend_id,upstream_id:m.upstream_id}),'モデルを削除しました')};
- actions.append(edit,hide,del);tr.append(actions);modrows.push(tr);
- const detailRow=node('tr');detailRow.className='model-editor-row hidden';
- const detailCell=node('td');detailCell.colSpan=7;const editor=node('div');editor.className='endpoint-editor';
- const title=node('strong','対応エンドポイントを選択');const checks=node('div');checks.className='chips';
- const toolbar=node('div');toolbar.className='toolbar';
- const save=node('button','保存'),cancel=node('button','キャンセル');save.type='button';save.className='primary';cancel.type='button';
- const closeEditor=()=>{detailRow.classList.add('hidden');edit.setAttribute('aria-expanded','false');edit.textContent='編集'};
- save.onclick=()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,endpoints:checkedIn(checks)}),'対応エンドポイントを保存しました');
- cancel.onclick=closeEditor;toolbar.append(cancel,save);editor.append(title,checks,toolbar);detailCell.append(editor);detailRow.append(detailCell);
- edit.onclick=()=>{
-   if(!detailRow.classList.contains('hidden')){closeEditor();return}
-   makeChecks(checks,CAPS,'edit-'+m.backend_id+'-'+m.upstream_id+'-',existing);
-   detailRow.classList.remove('hidden');edit.setAttribute('aria-expanded','true');edit.textContent='閉じる';
- };
- modrows.push(detailRow);
+function statusBadge(text, ok=false){const e=node('span',text);e.className='status '+(ok?'on':'off');return e}
+function miniTag(value){const e=node('span',value);e.className='item-tag';return e}
+function itemHead(name,description,badge){const top=node('div');top.className='item-top';const left=node('div');const a=node('div',name);a.className='item-name';const b=node('div',description);b.className='item-sub';left.append(a,b);top.append(left);if(badge)top.append(badge);return top}
+function actionBar(){const e=node('div');e.className='item-actions';return e}
+function actionButton(text,click,cls=''){const b=node('button',text);b.type='button';b.className=cls;b.onclick=click;return b}
+function endpointTags(container,values){const tags=node('div');tags.className='item-tags';for(const ep of values){const t=miniTag(ep.replace(/^\w+\s+\//,''));t.title=ep;tags.append(t)}if(!values.length){const t=node('span','未設定');t.className='item-sub';tags.append(t)}container.append(tags)}
+function modelEditor(m,card){
+ const existing=arr(m.endpoints),ed=node('div');ed.className='editor-card';
+ const form=node('form');const grid=node('div');grid.className='editor-grid';
+ const aliasL=node('label','公開モデルID');const alias=node('input');alias.type='text';alias.required=true;alias.value=m.public_id;aliasL.append(alias);
+ const pubL=node('label'),pub=node('input');pub.type='checkbox';pub.checked=!!m.published;pubL.className='inline-label';pubL.append(pub,node('span','APIに公開する'));
+ const checks=node('div');checks.className='chips';makeChecks(checks,CAPS,'ep-'+m.backend_id+'-'+m.upstream_id+'-',existing);
+ grid.append(aliasL,pubL);const capLabel=node('div','対応エンドポイント');capLabel.className='item-label';
+ const buttons=node('div');buttons.className='editor-actions';
+ buttons.append(actionButton('キャンセル',()=>ed.remove()),actionButton('保存',async()=>{
+  if(!alias.value.trim())return say('公開モデルIDを入力してください');
+  const r=await act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,public_id:alias.value.trim(),published:pub.checked,endpoints:checkedIn(checks)}),'モデル設定を保存しました');
+  if(r)ed.remove();
+ },'primary'));
+ form.append(grid,capLabel,checks,buttons);form.onsubmit=e=>e.preventDefault();ed.append(form);card.append(ed);
 }
-E('model-list').replaceChildren(table(['モデルID','バックエンド','公開モデルID','対応エンドポイント','公開','状態','操作'],modrows));
-E('model-count').textContent=state.models.filter(m=>m.published).length+' / '+state.models.length+' 公開';
-const keyrows=state.keys.map(k=>{const tr=node('tr');td(tr,k.name);td(tr,'•••••••• ('+k.id+')');td(tr,arr(k.capabilities).join(', '));td(tr,arr(k.models).join(', '));td(tr,k.expires_at===null?'無期限':new Date(k.expires_at*1000).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}));td(tr,!k.enabled?'無効':k.expires_at&&k.expires_at<Date.now()/1000?'期限切れ':'有効');const c=node('td'),edit=node('button','権限・期限'),rotate=node('button','再発行'),del=node('button','削除');edit.onclick=()=>editKey(k);rotate.onclick=async()=>{if(!confirm(k.name+' のキーを再発行しますか？以前のキーは即時無効になります．'))return;const r=await act(()=>api('keys/'+k.id+'/rotate','POST'),'キーを再発行しました');if(r)revealKey(r.key,k.name+' の新しいキー')};del.className='danger';del.onclick=()=>{if(confirm(k.name+' のキーを完全に削除しますか？'))act(()=>api('keys/'+k.id,'DELETE'),'APIキーを削除しました')};c.append(edit,rotate,del);tr.append(c);return tr});E('key-list').replaceChildren(table(['名前','キー','許可エンドポイント','モデル','期限','状態','操作'],keyrows));
-makeChecks(E('key-model-options'),state.models.filter(m=>m.published).map(m=>[m.public_id,m.public_id]),'km-',[]);E('key-model-options').classList.toggle('hidden',E('key-all-models').checked);const metrows=state.metrics.map(x=>{const tr=node('tr');[x.key_id,x.capability,x.requests,x.average_ms].forEach(v=>td(tr,v));return tr});E('metrics').replaceChildren(table(['キーID','エンドポイント','件数','平均応答開始 ms'],metrows));
+function backendEditor(b,card){
+ const ed=node('div');ed.className='editor-card';const f=node('form');const grid=node('div');grid.className='editor-grid';
+ const urlL=node('label','API URL（/v1まで）'),url=node('input');url.type='url';url.required=true;url.value=b.url;urlL.append(url);
+ const keyL=node('label','バックエンドAPIキー（変更時のみ）'),key=node('input');key.type='password';key.autocomplete='new-password';keyL.append(key);
+ const enabledL=node('label'),enabled=node('input');enabled.type='checkbox';enabled.checked=!!b.enabled;enabledL.className='inline-label';enabledL.append(enabled,node('span','バックエンドを有効にする'));
+ const discoverL=node('label'),discover=node('input');discover.type='checkbox';discover.checked=!!b.discover;discoverL.className='inline-label';discoverL.append(discover,node('span','モデル一覧を自動取得'));
+ grid.append(urlL,keyL,enabledL,discoverL);const actions=node('div');actions.className='editor-actions';actions.append(actionButton('キャンセル',()=>ed.remove()),actionButton('保存',async()=>{
+  const r=await act(()=>api('backends','POST',{id:b.id,url:url.value,api_key:key.value,enabled:enabled.checked,discover:discover.checked}),'バックエンドを保存しました');if(r)ed.remove();
+ },'primary'));
+ f.append(grid,actions);f.onsubmit=e=>e.preventDefault();ed.append(f);card.append(ed);
+}
+function render(){
+ E('backend-count').textContent=state.backends.length+' 件のバックエンド';
+ E('key-count').textContent=state.keys.length+' 件のAPIキー';
+ const backendList=E('backend-list');backendList.replaceChildren();
+ for(const b of state.backends){const card=node('article');card.className='item-card';
+  card.append(itemHead(b.id,b.url,statusBadge(b.enabled?'有効':'停止',!!b.enabled)));
+  const body=node('div');body.className='item-body';const caption=node('div','所属モデルの対応エンドポイント');caption.className='item-label';body.append(caption);endpointTags(body,arr(b.capabilities));card.append(body);
+  const actions=actionBar();actions.append(actionButton('編集',()=>{const old=card.querySelector('.editor-card');if(old)old.remove();else backendEditor(b,card)}),actionButton('削除',()=>{if(confirm(b.id+' を削除しますか？ 所属モデルも削除されます．'))act(()=>api('backends/'+encodeURIComponent(b.id),'DELETE'))},'danger'));
+  card.append(actions);backendList.append(card);
+ }
+ if(!state.backends.length)backendList.append(node('p','バックエンドは未登録です．「バックエンドを追加」から登録してください．'));
+ const manualSelected=E('manual-model-backend').value;E('manual-model-backend').replaceChildren(...state.backends.map(b=>new Option(b.id,b.id)));if(state.backends.some(b=>b.id===manualSelected))E('manual-model-backend').value=manualSelected;
+ const filter=E('model-filter').value;E('model-filter').replaceChildren(new Option('すべて',''),...state.backends.map(b=>new Option(b.id,b.id)));E('model-filter').value=filter;
+ const search=(E('model-search').value||'').toLowerCase().trim();
+ const models=state.models.filter(m=>(!filter||m.backend_id===filter)&&(E('show-hidden').checked||!m.hidden)&&(!search||[m.upstream_id,m.public_id,m.backend_id].some(v=>v.toLowerCase().includes(search))));
+ const modelList=E('model-list');modelList.replaceChildren();
+ for(const m of models){const card=node('article');card.className='item-card';
+  card.append(itemHead(m.public_id,m.upstream_id===m.public_id?'バックエンド：'+m.backend_id:'バックエンド：'+m.backend_id+' · 内部ID：'+m.upstream_id,statusBadge(m.published?'公開中':'非公開',!!m.published)));
+  const body=node('div');body.className='item-body';const lbl=node('div','対応エンドポイント');lbl.className='item-label';body.append(lbl);endpointTags(body,arr(m.endpoints));card.append(body);
+  const actions=actionBar();actions.append(actionButton('編集',()=>{const old=card.querySelector('.editor-card');if(old)old.remove();else modelEditor(m,card)}));
+  actions.append(actionButton(m.hidden?'表示':'非表示',()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,hidden:!m.hidden}),m.hidden?'表示しました':'非表示にしました')));
+  actions.append(actionButton('削除',()=>{const msg=m.manual?' を削除しますか？':' を削除しますか？ 再取得すれば復元できます（非公開・エンドポイント未設定）．';if(confirm(m.public_id+msg))act(()=>api('models','DELETE',{backend_id:m.backend_id,upstream_id:m.upstream_id}),'モデルを削除しました')},'danger'));
+  const stateText=node('span',m.manual?'手動登録':m.seen?'自動検出':'現在未検出');stateText.className='item-sub';actions.append(stateText);card.append(actions);modelList.append(card);
+ }
+ if(!models.length)modelList.append(node('p','条件に合うモデルがありません．検索条件を変更するか，モデルを追加してください．'));
+ E('model-count').textContent=state.models.filter(m=>m.published).length+' / '+state.models.length+' 公開';
+ const keyList=E('key-list');keyList.replaceChildren();
+ for(const k of state.keys){const card=node('article');card.className='item-card';const keyState=!k.enabled?'無効':k.expires_at&&k.expires_at<Date.now()/1000?'期限切れ':'有効';
+  card.append(itemHead(k.name,'キーID：'+k.id+' · 期限：'+(k.expires_at===null?'無期限':new Date(k.expires_at*1000).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})),statusBadge(keyState,keyState==='有効')));
+  const body=node('div');body.className='item-body';const caption=node('div','許可エンドポイント');caption.className='item-label';body.append(caption);endpointTags(body,arr(k.capabilities));const mcaption=node('div','利用可能なモデル：'+(arr(k.models).includes('*')?'すべて':arr(k.models).join('，')||'なし'));mcaption.className='item-sub';body.append(mcaption);card.append(body);
+  const actions=actionBar();actions.append(actionButton('編集',()=>{const old=card.querySelector('.editor-card');if(old)old.remove();else editKey(k,card)}),actionButton('再発行',async()=>{if(!confirm(k.name+' のキーを再発行しますか？以前のキーは無効になります．'))return;const r=await act(()=>api('keys/'+k.id+'/rotate','POST'),'キーを再発行しました');if(r)revealKey(r.key,k.name+' の新しいキー')}),actionButton('削除',()=>{if(confirm(k.name+' のキーを完全に削除しますか？'))act(()=>api('keys/'+k.id,'DELETE'),'APIキーを削除しました')},'danger'));
+  card.append(actions);keyList.append(card);
+ }
+ if(!state.keys.length)keyList.append(node('p','APIキーがありません．「APIキーを発行」から作成してください．'));
+ makeChecks(E('key-model-options'),state.models.filter(m=>m.published).map(m=>[m.public_id,m.public_id]),'km-',[]);E('key-model-options').classList.toggle('hidden',E('key-all-models').checked);
+ const metrows=state.metrics.map(x=>{const tr=node('tr');[x.key_id,x.capability,x.requests,x.average_ms].forEach(v=>td(tr,v));return tr});E('metrics').replaceChildren(table(['キーID','エンドポイント','件数','平均応答開始 ms'],metrows));
 }
 function checkedIn(parent){return [...parent.querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value)}
 
-function editKey(k){const old=E('key-editor');if(old)old.remove();const s=node('section');s.id='key-editor';const h=node('h2','キー設定：'+k.name);s.append(h);const l=node('label','許可するAPIエンドポイント');s.append(l);const cs=node('div');cs.className='chips';cs.id='edit-capabilities';makeChecks(cs,CAPS,'ec-',arr(k.capabilities).includes('*')?CAPS.map(c=>c[0]):arr(k.capabilities));s.append(cs);const ac=node('label'),all=node('input');all.type='checkbox';all.checked=arr(k.capabilities).includes('*');ac.append(all,node('span',' すべての機能を許可'));s.append(ac);const ml=node('label','利用可能なモデル（* は全モデル）'),mi=node('input');mi.type='text';mi.value=arr(k.models).join(',');ml.append(mi);s.append(ml);const dl=node('label','有効期限（日本時間．空欄は無期限）'),di=node('input');di.type='datetime-local';if(k.expires_at!=null){const local=new Date(k.expires_at*1000+9*3600000).toISOString().slice(0,16);di.value=local}dl.append(di);s.append(dl);const enabled=node('label'),en=node('input');en.type='checkbox';en.checked=!!k.enabled;enabled.append(en,node('span',' キーを有効にする'));s.append(enabled);const b=node('button','変更を保存');b.className='primary';b.onclick=async()=>{try{let expires=null;if(di.value){const ms=Date.parse(di.value+':00+09:00');if(!Number.isFinite(ms))throw Error('期限が不正です');expires=Math.floor(ms/1000)}const caps=all.checked?['*']:checked('edit-capabilities'),models=mi.value.split(',').map(x=>x.trim()).filter(Boolean);if(!caps.length||!models.length)throw Error('機能とモデルが必要です');const r=await act(()=>api('keys/'+k.id,'PATCH',{capabilities:caps,models,expires_at:expires,enabled:en.checked}),'キー設定を変更しました');if(r)s.remove()}catch(err){say(err.message)}};const close=node('button','閉じる');close.onclick=()=>s.remove();s.append(b,close);E('key-list').after(s);s.scrollIntoView({behavior:'smooth',block:'center'})}
+function editKey(k,card){const s=node('div');s.className='editor-card';
+ const h=node('strong','APIキーの権限・期限を編集');s.append(h);
+ const l=node('div','許可するAPIエンドポイント');l.className='item-label';s.append(l);
+ const cs=node('div');cs.className='chips';makeChecks(cs,CAPS,'ec-',arr(k.capabilities).includes('*')?CAPS.map(c=>c[0]):arr(k.capabilities));s.append(cs);
+ const ac=node('label'),all=node('input');all.type='checkbox';all.checked=arr(k.capabilities).includes('*');ac.className='inline-label';ac.append(all,node('span','すべてのエンドポイント'));s.append(ac);
+ cs.classList.toggle('hidden',all.checked);all.onchange=()=>cs.classList.toggle('hidden',all.checked);
+ const ml=node('label','利用可能なモデル');const sel=node('div');sel.className='chips';const allModels=node('input');allModels.type='checkbox';
+ allModels.checked=arr(k.models).includes('*');const allL=node('label');allL.className='inline-label';allL.append(allModels,node('span','すべての公開モデル'));
+ const modelItems=state.models.filter(m=>m.published).map(m=>[m.public_id,m.public_id]);makeChecks(sel,modelItems,'edit-model-',arr(k.models));sel.classList.toggle('hidden',allModels.checked);allModels.onchange=()=>sel.classList.toggle('hidden',allModels.checked);
+ s.append(ml,allL,sel);
+ const dl=node('label','有効期限（日本時間，空欄は無期限）'),di=node('input');di.type='datetime-local';if(k.expires_at!=null)di.value=new Date(k.expires_at*1000+9*3600000).toISOString().slice(0,16);dl.append(di);s.append(dl);
+ const enabled=node('label'),en=node('input');en.type='checkbox';en.checked=!!k.enabled;enabled.className='inline-label';enabled.append(en,node('span','キーを有効にする'));s.append(enabled);
+ const actions=node('div');actions.className='editor-actions';const b=node('button','保存');b.className='primary';b.type='button';b.onclick=async()=>{try{let expires=null;if(di.value){const ms=Date.parse(di.value+':00+09:00');if(!Number.isFinite(ms))throw Error('期限が不正です');expires=Math.floor(ms/1000)}const caps=all.checked?['*']:checkedIn(cs),models=allModels.checked?['*']:checkedIn(sel);if(!caps.length||!models.length)throw Error('エンドポイントとモデルを選択してください');const r=await act(()=>api('keys/'+k.id,'PATCH',{capabilities:caps,models,expires_at:expires,enabled:en.checked}),'キー設定を変更しました');if(r)s.remove()}catch(err){say(err.message)}};
+ actions.append(actionButton('キャンセル',()=>s.remove()),b);s.append(actions);card.append(s);
+}
 
 function revealKey(secret,title){visibleKey=secret;E('key-secret').textContent=secret;E('key-reveal-title').textContent=title;E('key-reveal').classList.remove('hidden');E('key-reveal').scrollIntoView({block:'center',behavior:'smooth'})}
 async function discoverSummary(result){const r=result?.results||[result?.discovery].filter(Boolean);E('discover-status').replaceChildren();if(!r.length)return;const box=node('div');box.className='panel';for(const x of r){const line=node('div',x.backend+'：モデル '+(x.status==='ok'?x.models+' 件':x.status==='error'?'取得失敗 — '+x.message:'取得せず'));box.append(line)}E('discover-status').append(box)}
 makeChecks(E('manual-model-endpoints'),CAPS,'manual-',[]);makeChecks(E('key-capabilities'),CAPS,'kc-',[]);
-E('model-filter').onchange=render;E('show-hidden').onchange=render;E('model-all').onclick=()=>E('model-list').querySelectorAll('[data-model-published]').forEach(e=>e.checked=true);E('model-none').onclick=()=>E('model-list').querySelectorAll('[data-model-published]').forEach(e=>e.checked=false);
-E('model-save').onclick=async()=>{try{const models=[...E('model-list').querySelectorAll('[data-model-alias]')].map(alias=>{const tr=alias.closest('tr');return {backend_id:alias.dataset.backend,upstream_id:alias.dataset.upstream,public_id:alias.value,published:tr.querySelector('[data-model-published]').checked,endpoints:arr(state.models.find(m=>m.backend_id===alias.dataset.backend&&m.upstream_id===alias.dataset.upstream)?.endpoints)}});await api('models/batch','PATCH',models);await load();say('モデル設定をまとめて保存しました')}catch(e){say('保存エラー: '+e.message)}};
+E('model-filter').onchange=render;E('show-hidden').onchange=render;E('model-search').oninput=render;
 E('backend-reset').onclick=()=>{E('backend-form').reset();E('backend-id').value='';makeChecks(E('manual-model-endpoints'),CAPS,'manual-',[])};
 
 E('backend-form').onsubmit=async e=>{e.preventDefault();const r=await act(()=>api('backends','POST',{id:E('backend-id').value,url:E('backend-url').value,api_key:E('backend-apikey').value,enabled:E('backend-enabled').checked,discover:E('backend-discover').checked}),'バックエンドを保存しました');if(r){discoverSummary(r);E('backend-apikey').value='';switchTab('models')}};
