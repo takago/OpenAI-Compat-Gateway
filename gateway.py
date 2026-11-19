@@ -446,7 +446,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         bid=data.get("backend_id")
         upstream=data.get("upstream_id")
         public=data.get("public_id")
-        if not isinstance(public,str) or not public or len(public)>200:
+        if public is not None and (not isinstance(public,str) or not public or len(public)>200):
             raise HTTPException(400,"Invalid public model ID")
         try:
             endpoints = normalize(data.get("endpoints", [])) if "endpoints" in data else None
@@ -457,6 +457,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 current=db.execute("SELECT * FROM models WHERE backend_id=? AND upstream_id=?",(bid,upstream)).fetchone()
                 if not current:
                     raise HTTPException(404,"Model not found")
+                if public is None:
+                    public = current["public_id"]
                 values = json.dumps(endpoints) if endpoints is not None else current["endpoints"]
                 hidden = int(bool(data["hidden"])) if "hidden" in data else current["hidden"]
                 cur=db.execute("UPDATE models SET public_id=?,published=?,endpoints=?,hidden=? WHERE backend_id=? AND upstream_id=?",(public,int(bool(data.get("published",current["published"]))),values,hidden,bid,upstream))

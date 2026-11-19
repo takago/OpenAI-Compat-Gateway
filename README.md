@@ -67,3 +67,9 @@ sudo systemctl start openai-compat-gateway
 `gateway.py` configures `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` as requested for the deployment environment. HTTPS certificate verification stays enabled; this does not automatically fix an incomplete certificate chain.
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
+
+## v0.4.1: Model endpoint editor
+
+The model table shows only configured endpoints as compact labels such as `v1/chat/completions`. Click **Edit** on an individual model to choose its endpoints with checkboxes; **Save** applies the change and **Cancel** discards it.
+
+Newly discovered models begin with **no endpoint assignments**. The gateway does not infer model capabilities. Existing model endpoint assignments are preserved across upgrades. Bulk editing of public model IDs and publication state remains available.
