@@ -1,8 +1,5 @@
 # OpenAI-Compat-Gateway
 
-開発：**TAKAGO LAB（金沢工業大学）**
-GitHub：https://github.com/takago
-
 複数のPC上のOpenAI互換APIを単一の `/v1` に統合する軽量な非公式ゲートウェイです．LLM（複数Ollama，vLLMなど），音声認識・音声合成，画像生成・編集，動画生成を対象とします．OpenAI公式の製品ではありません．
 
 **v0.2.2：APIキーごとの有効期限（無期限・7日・30日・90日・日時指定）と，管理画面からの期限更新に対応しています．**
