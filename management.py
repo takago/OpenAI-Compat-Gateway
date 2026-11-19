@@ -80,6 +80,14 @@ class Store:
             backend_cols = {r[1] for r in db.execute("PRAGMA table_info(backends)")}
             if "api_key" not in backend_cols:
                 db.execute("ALTER TABLE backends ADD COLUMN api_key TEXT")
+            if "auto_capabilities" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN auto_capabilities INTEGER NOT NULL DEFAULT 0")
+            if "detected_capabilities" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN detected_capabilities TEXT NOT NULL DEFAULT '[]'")
+            if "detection_status" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN detection_status TEXT NOT NULL DEFAULT 'pending'")
+            if "detection_source" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN detection_source TEXT NOT NULL DEFAULT ''")
             # Safe in-place schema update for existing SQLite databases.
             cols = {r[1] for r in db.execute("PRAGMA table_info(api_keys)")}
             if "expires_at" not in cols:

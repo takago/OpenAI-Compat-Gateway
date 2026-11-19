@@ -48,3 +48,9 @@ MIT License. Copyright (c) 2026 TAKAGO LAB.
 - Refresh every backend explicitly; publish discovered models using checkboxes and batch save. Discovered models remain private by default.
 - Copy an API key at issue or rotation time. Previously issued secrets cannot be displayed again because only their hashes are stored. Rotation revokes the old secret; keys can be deleted or their permissions and expiration modified.
 - Existing SQLite data is preserved. Back up the database before installing an update with `sudo ./install.sh`.
+
+## Automatic API capability discovery (v0.3.2)
+
+On backend save and explicit refresh, the gateway collects models from `/v1/models` and independently discovers endpoint capabilities. It checks `/openapi.json` for POST operations first, then uses **GET/OPTIONS only** (with a nonexistent-path control) when OpenAPI metadata is missing. It never submits generation POST requests during discovery.
+
+New backends default to automatic discovery. If endpoints cannot be verified, existing capability assignments are retained and the dashboard reports an unknown result; administrators can switch to manual selection. Existing backends retain their previous manual configuration after upgrade until explicitly switched to automatic discovery. Detection proves route existence, not successful model execution. Models remain unpublished by default.

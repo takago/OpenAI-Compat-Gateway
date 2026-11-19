@@ -19,6 +19,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from management import CAPABILITIES, Store, password_check, validate_url
+from capability_detection import detect_capabilities
+
+
+os.environ["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
+os.environ["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
 
 LOG = logging.getLogger("compat_gateway")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -131,13 +136,33 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(503, f"Missing backend API key environment: {env}")
         return os.getenv(env) if env else None
 
+    async def refresh_capabilities(row):
+        """Read-only inspection; keep existing routing on ambiguous results."""
+        try:
+            key = upstream_key(row)
+            headers = {"authorization": "Bearer " + key} if key else {}
+            result = await detect_capabilities(app.state.client, row["url"], headers)
+            caps = result["capabilities"]
+            with store.db() as db:
+                if row.get("auto_capabilities") and result["status"] in {"ok", "partial"}:
+                    db.execute("UPDATE backends SET capabilities=?, detected_capabilities=?, detection_status=?, detection_source=? WHERE id=?",
+                               (json.dumps(caps), json.dumps(caps), result["status"], result["source"], row["id"]))
+                else:
+                    db.execute("UPDATE backends SET detected_capabilities=?, detection_status=?, detection_source=? WHERE id=?",
+                               (json.dumps(caps), result["status"], result["source"], row["id"]))
+            return result
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            LOG.warning("Capability detection %s failed: %s", row["id"], exc)
+            return {"status": "error", "source": "none", "capabilities": [], "message": str(exc)[:180]}
+
     async def refresh_one(row, force=False):
         if not row["enabled"]:
             return {"backend": row["id"], "status": "skipped", "message": "Disabled"}
-        if not row["discover"]:
-            return {"backend": row["id"], "status": "skipped", "message": "Discovery disabled"}
         if not force and cached.get(row["id"],0) > time.monotonic():
             return {"backend": row["id"], "status": "cached"}
+        capabilities = await refresh_capabilities(row)
+        if not row["discover"]:
+            return {"backend": row["id"], "status": "skipped", "message": "Model discovery disabled", "capability_detection": capabilities}
         try:
             headers = {"authorization":"Bearer " + upstream_key(row)} if upstream_key(row) else {}
             resp = await app.state.client.get(row["url"]+"/models",headers=headers,timeout=8)
@@ -148,10 +173,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
             ids = {m["id"] for m in payload["data"] if isinstance(m,dict) and isinstance(m.get("id"),str) and m["id"]}
             store.discover(row["id"],ids)
             cached[row["id"]] = time.monotonic() + max(1,int(config.get("model_cache_seconds",60)))
-            return {"backend": row["id"], "status": "ok", "models": len(ids)}
+            return {"backend": row["id"], "status": "ok", "models": len(ids), "capability_detection": capabilities}
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
             LOG.warning("Discovery %s failed: %s",row["id"],e)
-            return {"backend": row["id"], "status": "error", "message": str(e)[:300]}
+            return {"backend": row["id"], "status": "error", "message": str(e)[:300], "capability_detection": capabilities}
 
     async def refresh_all(force=False):
         return await asyncio.gather(*(refresh_one(b,force) for b in store.backends()))
@@ -367,13 +392,21 @@ def create_app(config_path: str | None = None) -> FastAPI:
         except (ValueError,KeyError) as exc:
             raise HTTPException(400,str(exc))
         caps=data.get("capabilities",[])
-        if not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES:
+        if not isinstance(caps,list) or not set(caps)<=CAPABILITIES:
             raise HTTPException(400,"Invalid capabilities")
+        auto_caps = bool(data.get("auto_capabilities", "capabilities" not in data))
+        if not auto_caps and not caps:
+            raise HTTPException(400,"Select at least one capability for manual mode")
         direct_key=data.get("api_key", "")
         if not isinstance(direct_key,str) or len(direct_key)>4096:
             raise HTTPException(400,"Invalid backend API key")
         with store.db() as db:
-            db.execute("INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET url=excluded.url,capabilities=excluded.capabilities,key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END",(bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key))
+            db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,auto_capabilities)
+                VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                url=excluded.url,capabilities=CASE WHEN excluded.auto_capabilities=1 THEN backends.capabilities ELSE excluded.capabilities END,
+                key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,auto_capabilities=excluded.auto_capabilities,
+                api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END""",
+                (bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key,int(auto_caps)))
         cached.pop(bid,None)
         result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
         return {"ok":True, "discovery":result}

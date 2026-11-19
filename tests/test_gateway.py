@@ -106,3 +106,96 @@ async def test_key_rotate_delete_and_discovery_errors(app):
             assert (await c.delete('/admin/api/keys/1',headers=h)).status_code==200
             assert (await c.get('/v1/models',headers={'authorization':'Bearer '+new})).status_code==401
             assert (await c.delete('/admin/api/keys/1',headers=h)).status_code==404
+
+@pytest.mark.asyncio
+async def test_automatic_capabilities_from_openapi_and_models(app):
+    from gateway import create_app
+    import json as stdjson
+    seen=[]
+    def backend(req):
+        seen.append((req.method, req.url.path))
+        if req.url.path=='/openapi.json':
+            return httpx.Response(200,json={'openapi':'3.1.0','paths':{
+                '/v1/chat/completions':{'post':{}},
+                '/v1/images/generations':{'post':{}},
+                '/v1/images/edits':{'post':{}},
+                '/v1/videos':{'post':{}},
+                '/v1/audio/speech':{'get':{}}}})
+        if req.url.path=='/v1/models':return httpx.Response(200,json={'data':[{'id':'image-one'}]})
+        return httpx.Response(404)
+    async with app.router.lifespan_context(app):
+        await app.state.client.aclose()
+        app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://gateway') as c:
+            await c.post('/admin/api/setup',json={'password':'long-test-password'})
+            csrf=(await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            h={'x-csrf-token':csrf}
+            response=await c.post('/admin/api/backends',headers=h,json={
+                'id':'image','url':'http://gpu.local/v1','auto_capabilities':True,
+                'enabled':True,'discover':True})
+            assert response.status_code==200,response.text
+            info=response.json()['discovery']
+            assert info['status']=='ok'
+            assert info['capability_detection']['status']=='ok'
+            expected={'chat','images_generations','images_edits','videos'}
+            assert set(info['capability_detection']['capabilities'])==expected
+            state=(await c.get('/admin/api/state')).json()
+            assert set(stdjson.loads(state['backends'][0]['capabilities']))==expected
+            assert state['models'][0]['upstream_id']=='image-one'
+            assert state['models'][0]['published']==0
+            assert all(method=='GET' for method,_ in seen)
+
+@pytest.mark.asyncio
+async def test_fallback_probe_and_unverified_preserves_existing_caps(app):
+    def backend(req):
+        path=req.url.path
+        if path=='/openapi.json':return httpx.Response(404)
+        if path=='/v1/models':return httpx.Response(200,json={'data':[{'id':'llm'}]})
+        if path in ('/v1/chat/completions','/v1/embeddings') and req.method=='GET':
+            return httpx.Response(405, headers={'allow':'POST'})
+        return httpx.Response(404)
+    async with app.router.lifespan_context(app):
+        await app.state.client.aclose()
+        app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://gateway') as c:
+            await c.post('/admin/api/setup',json={'password':'long-test-password'})
+            csrf=(await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            h={'x-csrf-token':csrf}
+            r=await c.post('/admin/api/backends',headers=h,json={'id':'one','url':'http://gpu.local/v1','auto_capabilities':True})
+            assert r.status_code==200,r.text
+            assert set(r.json()['discovery']['capability_detection']['capabilities'])=={'chat','embeddings'}
+            assert set(json.loads((await c.get('/admin/api/state')).json()['backends'][0]['capabilities']))=={'chat','embeddings'}
+    # A server that supplies generic 200 responses must not be credited with every API.
+    def generic(req):
+        if req.url.path=='/openapi.json':return httpx.Response(404)
+        if req.url.path=='/v1/models':return httpx.Response(200,json={'data':[]})
+        return httpx.Response(200)
+    async with app.router.lifespan_context(app):
+        await app.state.client.aclose()
+        app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(generic))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://gateway') as c:
+            csrf=(await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            r=await c.post('/admin/api/discover',headers={'x-csrf-token':csrf})
+            assert r.json()['results'][0]['capability_detection']['status']=='unknown'
+            state=(await c.get('/admin/api/state')).json()
+            assert set(json.loads(state['backends'][0]['capabilities']))=={'chat','embeddings'}
+
+@pytest.mark.asyncio
+async def test_manual_capability_override_and_persistence(app):
+    def backend(req):
+        if req.url.path=='/openapi.json':
+            return httpx.Response(200,json={'paths':{'/v1/videos':{'post':{}}}})
+        if req.url.path=='/v1/models':return httpx.Response(200,json={'data':[]})
+        return httpx.Response(404)
+    async with app.router.lifespan_context(app):
+        await app.state.client.aclose()
+        app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://gateway') as c:
+            await c.post('/admin/api/setup',json={'password':'long-test-password'})
+            csrf=(await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            h={'x-csrf-token':csrf}
+            r=await c.post('/admin/api/backends',headers=h,json={'id':'one','url':'http://gpu.local/v1','auto_capabilities':False,'capabilities':['chat']})
+            assert r.status_code==200,r.text
+            state=(await c.get('/admin/api/state')).json()
+            assert json.loads(state['backends'][0]['capabilities'])==['chat']
+            assert json.loads(state['backends'][0]['detected_capabilities'])==['videos']
