@@ -68,8 +68,12 @@ sudo systemctl start openai-compat-gateway
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
 
-## v0.4.2: Model endpoint editor
+## v0.4.3: Model endpoint editor
 
 The model table shows only configured endpoints as compact labels such as `v1/chat/completions`. Click **Edit** on an individual model to choose its endpoints with checkboxes; **Save** applies the change and **Cancel** discards it.
 
 Newly discovered models begin with **no endpoint assignments**. The gateway does not infer model capabilities. Existing model endpoint assignments are preserved across upgrades. Bulk editing of public model IDs and publication state remains available.
+
+### Deleting and rediscovering models
+
+Deleting an automatically discovered model removes only its gateway registration. Refreshing `/v1/models` restores it if the upstream still lists it, initially unpublished, visible, and with no enabled endpoints. Manually added models are not automatically restored. Existing model settings remain unchanged. The Edit action sits in the endpoint column.

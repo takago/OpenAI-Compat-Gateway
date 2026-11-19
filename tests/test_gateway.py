@@ -146,7 +146,7 @@ async def test_manual_model_without_models_endpoint_and_https_ca(app):
             assert (await c.get('/v1/models',headers=auth)).json()['data']==[]
 
 @pytest.mark.asyncio
-async def test_delete_discovered_model_stays_deleted_on_refresh_and_can_restore_manually(app):
+async def test_delete_discovered_model_returns_on_refresh(app):
     def backend(req):
         return httpx.Response(200, json={'data': [{'id': 'old-wrong-id'}]})
     async with app.router.lifespan_context(app):
@@ -161,8 +161,11 @@ async def test_delete_discovered_model_stays_deleted_on_refresh_and_can_restore_
             assert any(m['upstream_id']=='old-wrong-id' for m in state['models'])
             assert (await c.request('DELETE','/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'old-wrong-id'})).status_code==200
             assert (await c.post('/admin/api/discover',headers=h)).status_code==200
-            assert (await c.get('/admin/api/state')).json()['models']==[]
-            assert (await c.post('/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'old-wrong-id','public_id':'corrected','published':True})).status_code==200
+            models=(await c.get('/admin/api/state')).json()['models']
+            assert len(models)==1 and models[0]['upstream_id']=='old-wrong-id'
+            assert models[0]['published']==0 and models[0]['hidden']==0
+            assert json.loads(models[0]['endpoints']) == []
+            assert (await c.patch('/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'old-wrong-id','public_id':'corrected','published':True})).status_code==200
             assert (await c.post('/admin/api/discover',headers=h)).status_code==200
             models=(await c.get('/admin/api/state')).json()['models']
-            assert len(models)==1 and models[0]['public_id']=='corrected' and models[0]['manual']==1
+            assert len(models)==1 and models[0]['public_id']=='corrected' and models[0]['manual']==0

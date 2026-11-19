@@ -36,7 +36,7 @@ def test_existing_forms_preserved():
 
 def test_model_edit_position_and_no_diagnostics():
     page = HTML.read_text(encoding="utf-8")
-    assert "heading.append(modelName,edit)" in page
+    assert "endpointHeader.append(endpointLabel,edit)" in page
     assert "modrows.push(detailRow)" in page
     assert "detailCell.colSpan=7" in page
     assert "接続診断" not in page
