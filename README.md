@@ -47,7 +47,7 @@ MIT License. Copyright (c) 2026 TAKAGO LAB.
 The dashboard has four tabs: Backends, Models, API Keys, Usage.
 
 - **Backends:** Register a `/v1` URL and optional upstream API key. Capabilities are *derived* from the endpoints configured on models attached to that backend. Model discovery via `GET /v1/models` is optional. A missing `/v1/models` endpoint does not prevent manual model registration.
-- **Models:** Auto-discover or manually add a model; configure its public alias, published state, and supported endpoints as explicit `POST /v1/...` selections. Newly discovered models default to unpublished with no endpoints. Hide/show only affects the admin list. Unpublishing blocks API use and removes it from `/v1/models`. Deletion removes the registration; deleted discovered models do not silently reappear.
+- **Models:** Auto-discover or manually add a model; configure its public alias, published state, and supported endpoints as explicit `POST /v1/...` selections. Newly discovered models default to unpublished with no endpoints. Hide/show only affects the admin list. Unpublishing blocks API use and removes it from `/v1/models`. Deletion removes the registration. Refreshing the model list restores deleted discovered models that remain on the upstream server, initially unpublished and with no enabled endpoints. Manually added models must be re-added manually.
 - **API Keys:** Generate time-limited tokens, constrain exact endpoints and models, revoke, rotate or delete. Secrets are only shown when issued/rotated.
 - **Usage:** View request statistics and export/restore the SQLite configuration. Restore requires the current administrator password and service restart. **Backups contain upstream secrets; handle them as sensitive.**
 
