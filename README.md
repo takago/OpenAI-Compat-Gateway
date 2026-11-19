@@ -1,7 +1,6 @@
 # OpenAI-Compat-Gateway
 
-
-A lightweight, unofficial gateway that consolidates OpenAI-compatible AI APIs running on multiple PCs behind **one `/v1` endpoint**. Supports multiple Ollama/vLLM servers, TTS, STT, image generation/editing, and asynchronous video jobs.
+Not affiliated with OpenAI. A lightweight, unofficial gateway that consolidates OpenAI-compatible AI APIs running on multiple PCs behind **one `/v1` endpoint**. Supports multiple Ollama/vLLM servers, TTS, STT, image generation/editing, and asynchronous video jobs.
 
 **v0.2.2** adds an administrator web UI, SQLite-backed backend and model registry, automatic `/v1/models` discovery, model publishing and aliases, API keys with capability/model ACLs, persistent video ownership, and request statistics.
 
@@ -87,7 +86,7 @@ See `Caddyfile.example` for an example that forwards HTTPS to `127.0.0.1:8765`, 
 
 Run tests: `pip install -r requirements-dev.txt && python -m pytest -q`.
 
-Copyright (c) 2026 TAKAGO LAB. MIT licensed. Not affiliated with OpenAI.
+
 
 ## API key expiration
 
