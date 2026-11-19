@@ -81,3 +81,7 @@ Deleting an automatically discovered model removes only its gateway registration
 ## Administration UI (v0.5.0)
 
 The four tabs are Backends, Models, API Keys, and Usage. Lists are read-only summaries; use **Edit** on an individual item for a single Save/Cancel form. Model editing combines public model ID, visibility to API clients (publication), and endpoint permissions. Hide affects only the admin list, while Delete removes the gateway registration. Models can be discovered again if their upstream `/v1/models` reports them. Model search and backend filtering are available. Existing API and database formats remain unchanged.
+
+## Compact administration UI (v0.5.1)
+
+The admin interface uses compact tables on desktop for backends, models, and API keys. Search, filters, and actions share one toolbar. Select **Edit** to expand a row-level form. On narrow screens, tables can be scrolled horizontally. Existing API routes and database records are unchanged.

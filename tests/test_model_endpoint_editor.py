@@ -28,7 +28,7 @@ async def test_edit_endpoints_without_changing_alias_or_publication(tmp_path, mo
 def test_model_page_has_compact_labels_and_single_edit_form():
     from pathlib import Path
     page = (Path(__file__).resolve().parent.parent / 'admin.html').read_text()
-    assert "endpointTags(body,arr(m.endpoints))" in page
+    assert "endpointTags(ep,arr(m.endpoints))" in page
     assert "function modelEditor(m,card)" in page
     assert "public_id:alias.value.trim()" in page
     assert "endpoints:checkedIn(checks)" in page

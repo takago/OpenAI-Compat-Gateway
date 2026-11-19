@@ -41,7 +41,10 @@ def test_ui_uses_list_and_edit_separation():
     assert "function editKey(k,card)" in page
     assert "公開モデルID" in page
     assert "E('model-search').oninput=render" in page
-    assert "actions.append(actionButton('編集'" in page
+    assert "appendEditorRow(backendBody,tr,5" in page
+    assert "appendEditorRow(modelBody,tr,5" in page
+    assert "appendEditorRow(keyBody,tr,5" in page
+    assert "className='compact-table'" in page
     assert "公開・モデル名をまとめて保存" not in page
     assert "接続診断" not in page
     assert "diagnose_backend" not in (HTML.parent / "gateway.py").read_text(encoding="utf-8")
