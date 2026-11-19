@@ -1,14 +1,3 @@
 ai.example.com {
-    # Restrict administration to trusted network/VPN; replace CIDR with your own.
-    @admin path /admin /admin/*
-    handle @admin {
-        @trusted remote_ip 127.0.0.1/8 192.168.0.0/16 10.0.0.0/8
-        handle @trusted {
-            reverse_proxy 127.0.0.1:8765
-        }
-        respond "Forbidden" 403
-    }
-    handle {
-        reverse_proxy 127.0.0.1:8765
-    }
+    reverse_proxy 127.0.0.1:8765
 }

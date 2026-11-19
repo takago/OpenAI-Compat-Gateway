@@ -47,6 +47,7 @@ class Store:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
             db.executescript("""
+            CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS backends (
                 id TEXT PRIMARY KEY, url TEXT NOT NULL, capabilities TEXT NOT NULL,
                 key_env TEXT, enabled INTEGER NOT NULL DEFAULT 1, discover INTEGER NOT NULL DEFAULT 1
@@ -76,11 +77,16 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS idx_usage_time ON usage_events(time);
             """)
+            backend_cols = {r[1] for r in db.execute("PRAGMA table_info(backends)")}
+            if "api_key" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN api_key TEXT")
             # Safe in-place schema update for existing SQLite databases.
             cols = {r[1] for r in db.execute("PRAGMA table_info(api_keys)")}
             if "expires_at" not in cols:
                 db.execute("ALTER TABLE api_keys ADD COLUMN expires_at INTEGER")
         os.chmod(path, 0o600)
+        with self.db() as db:
+            db.execute("INSERT OR IGNORE INTO settings(name,value) VALUES('session_secret',?)", (secrets.token_urlsafe(48),))
 
     def db(self):
         db = sqlite3.connect(self.path, timeout=10)
@@ -89,20 +95,21 @@ class Store:
         db.execute("PRAGMA busy_timeout=10000")
         return db
 
-    def bootstrap(self, config: dict):
+    def setting(self, name: str) -> str | None:
         with self.db() as db:
-            if db.execute("SELECT count(*) FROM backends").fetchone()[0]:
-                return
-            for b in config.get("backends", []):
-                db.execute("INSERT INTO backends VALUES (?,?,?,?,1,?)", (b["id"], validate_url(b["base_url"]), json.dumps(b["capabilities"]), b.get("api_key_env"), int(b.get("discover_models", True))))
-                for mid in b.get("models", []):
-                    alias = mid
-                    if db.execute("SELECT 1 FROM models WHERE public_id=?", (alias,)).fetchone():
-                        alias = f'{b["id"]}::{mid}'
-                    db.execute("INSERT INTO models VALUES (?,?,?,?,1)", (b["id"], mid, alias, 1))
-            key = os.getenv("GATEWAY_API_KEY")
-            if key:
-                db.execute("INSERT INTO api_keys(name,hash,capabilities,models,created_at) VALUES(?,?,?,?,?)", ("initial-admin-api-key", hash_key(key), json.dumps(["*"]), json.dumps(["*"]), int(time.time())))
+            row = db.execute("SELECT value FROM settings WHERE name=?", (name,)).fetchone()
+            return row[0] if row else None
+
+    def admin_initialized(self) -> bool:
+        return self.setting("admin_password_hash") is not None
+
+    def create_admin(self, password: str) -> bool:
+        if len(password) < 12 or len(password) > 1024:
+            raise ValueError("Password must be between 12 and 1024 characters")
+        with self.db() as db:
+            # Atomic: concurrent first-run requests cannot overwrite administrator.
+            result = db.execute("INSERT OR IGNORE INTO settings(name,value) VALUES('admin_password_hash',?)", (password_hash(password),))
+            return result.rowcount == 1
 
     def backends(self):
         with self.db() as db:

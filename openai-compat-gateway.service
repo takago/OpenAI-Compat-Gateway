@@ -1,16 +1,24 @@
 [Unit]
-Description=OpenAI-Compat-Gateway (OpenAI-compatible API router)
+Description=OpenAI-Compat-Gateway (TAKAGO LAB)
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/OpenAI-Compat-Gateway
-EnvironmentFile=%h/OpenAI-Compat-Gateway/.env
-ExecStart=%h/OpenAI-Compat-Gateway/.venv/bin/uvicorn gateway:app --host 127.0.0.1 --port 8765
+User=openai-gateway
+Group=openai-gateway
+WorkingDirectory=/opt/openai-compat-gateway
+Environment=GATEWAY_DB=/var/lib/openai-compat-gateway/gateway.sqlite3
+ExecStart=/opt/openai-compat-gateway/.venv/bin/uvicorn gateway:app --host 127.0.0.1 --port 8765
+StateDirectory=openai-compat-gateway
+StateDirectoryMode=0700
 Restart=on-failure
 RestartSec=5
 UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+PrivateTmp=true
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

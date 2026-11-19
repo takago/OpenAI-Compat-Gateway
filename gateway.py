@@ -105,22 +105,13 @@ def session_csrf(secret: str, token: str) -> str:
 
 
 def create_app(config_path: str | None = None) -> FastAPI:
-    config_path = config_path or os.getenv("GATEWAY_CONFIG", "config.json")
-    config = json.loads(Path(config_path).read_text(encoding="utf8"))
-    if not isinstance(config.get("backends"),list):
-        raise ValueError("config.json requires backends list")
-    max_upload = int(config.get("max_request_mb",256))*1024*1024
-    if max_upload <= 0:
-        raise ValueError("max_request_mb must be positive")
-    store = Store(os.getenv("GATEWAY_DB", str(Path(config_path).resolve().parent / "gateway.sqlite3")))
-    store.bootstrap(config)
-    if not store.keys():
-        raise ValueError("No API keys: set GATEWAY_API_KEY before first run or create key in SQLite")
-    admin_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
-    session_secret = os.getenv("ADMIN_SESSION_SECRET", "")
-    admin_enabled = bool(admin_hash and session_secret and len(session_secret) >= 32)
-    if not admin_enabled:
-        LOG.warning("Admin UI disabled; configure ADMIN_PASSWORD_HASH and ADMIN_SESSION_SECRET")
+    # Configuration is managed in SQLite; no .env or config.json is required.
+    config = {"model_cache_seconds": 60, "max_request_mb": 256}
+    max_upload = config["max_request_mb"] * 1024 * 1024
+    db_path = os.getenv("GATEWAY_DB", "/var/lib/openai-compat-gateway/gateway.sqlite3")
+    store = Store(db_path)
+    session_secret = store.setting("session_secret")
+    admin_enabled = True
     cached: dict[str, float] = {}
 
     @asynccontextmanager
@@ -133,6 +124,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.state.store = store
 
     def upstream_key(row):
+        if row.get("api_key"):
+            return row["api_key"]
         env = row.get("key_env")
         if env and not os.getenv(env):
             raise HTTPException(503, f"Missing backend API key environment: {env}")
@@ -302,12 +295,32 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(404,"Admin disabled")
         return HTMLResponse(Path(__file__).with_name("admin.html").read_text(encoding="utf8"),headers={"Cache-Control":"no-store"})
 
+    @app.get("/admin/api/setup-status")
+    async def setup_status():
+        return {"needs_setup": not store.admin_initialized()}
+
+    @app.post("/admin/api/setup")
+    async def first_setup(request: Request):
+        # Deliberately reachable via the public /admin path until the first admin is created.
+        # Protect the gateway with Caddy/network ACL until setup finishes.
+        if store.admin_initialized():
+            raise HTTPException(409,"Administrator already initialized")
+        try:
+            data = await request.json()
+            password = data.get("password")
+            if not isinstance(password,str) or not store.create_admin(password):
+                raise HTTPException(400,"Password must be at least 12 characters")
+        except (ValueError,TypeError):
+            raise HTTPException(400,"Invalid administrator password")
+        return {"ok": True}
+
     @app.post("/admin/api/login")
     async def login(request:Request):
         if not admin_enabled:
             raise HTTPException(404,"Admin disabled")
         data=await request.json()
-        if not password_check(str(data.get("password","")),admin_hash):
+        stored_hash = store.setting("admin_password_hash")
+        if not stored_hash or not password_check(str(data.get("password","")),stored_hash):
             await asyncio.sleep(.3)
             raise HTTPException(401,"Incorrect password")
         token=session_create(session_secret)
@@ -320,7 +333,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def admin_state(request:Request):
         admin_guard(request)
         token=request.cookies.get("ocg_session","")
-        return {"csrf":session_csrf(session_secret,token),"backends":store.backends(),"models":store.models(),"keys":store.keys(),"metrics":store.metrics()}
+        return {"csrf":session_csrf(session_secret,token),"backends":[{k:v for k,v in b.items() if k != "api_key"} for b in store.backends()],"models":store.models(),"keys":store.keys(),"metrics":store.metrics()}
 
     @app.post("/admin/api/logout")
     async def logout(request:Request):
@@ -350,11 +363,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
         caps=data.get("capabilities",[])
         if not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES:
             raise HTTPException(400,"Invalid capabilities")
-        key_env=data.get("key_env") or None
-        if key_env and (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",key_env) or not os.getenv(key_env)):
-            raise HTTPException(400,"Environment variable for backend key is not defined")
+        direct_key=data.get("api_key", "")
+        if not isinstance(direct_key,str) or len(direct_key)>4096:
+            raise HTTPException(400,"Invalid backend API key")
         with store.db() as db:
-            db.execute("INSERT INTO backends(id,url,capabilities,key_env,enabled,discover) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET url=excluded.url,capabilities=excluded.capabilities,key_env=excluded.key_env,enabled=excluded.enabled,discover=excluded.discover",(bid,url,json.dumps(caps),key_env,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True)))))
+            db.execute("INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET url=excluded.url,capabilities=excluded.capabilities,key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END",(bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key))
         cached.pop(bid,None)
         return {"ok":True}
 
