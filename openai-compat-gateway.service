@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenAI-Compat-Gateway (OpenAI-compatible API router)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/OpenAI-Compat-Gateway
+EnvironmentFile=%h/OpenAI-Compat-Gateway/.env
+ExecStart=%h/OpenAI-Compat-Gateway/.venv/bin/uvicorn gateway:app --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,74 @@
+{
+  "max_request_mb": 256,
+  "model_cache_seconds": 60,
+  "backends": [
+    {
+      "id": "ollama-a",
+      "base_url": "http://192.168.1.101:11434/v1",
+      "capabilities": [
+        "chat",
+        "completions",
+        "embeddings"
+      ],
+      "models": [],
+      "discover_models": true
+    },
+    {
+      "id": "ollama-b",
+      "base_url": "http://192.168.1.102:11434/v1",
+      "capabilities": [
+        "chat",
+        "completions",
+        "embeddings"
+      ],
+      "models": [],
+      "discover_models": true
+    },
+    {
+      "id": "stt",
+      "base_url": "http://192.168.1.103:8000/v1",
+      "capabilities": [
+        "audio_transcriptions",
+        "audio_translations"
+      ],
+      "models": [
+        "whisper-local"
+      ],
+      "discover_models": false
+    },
+    {
+      "id": "tts",
+      "base_url": "http://192.168.1.104:8000/v1",
+      "capabilities": [
+        "audio_speech"
+      ],
+      "models": [
+        "tts-local"
+      ],
+      "discover_models": false
+    },
+    {
+      "id": "image",
+      "base_url": "http://192.168.1.105:8000/v1",
+      "capabilities": [
+        "images_generations",
+        "images_edits"
+      ],
+      "models": [
+        "image-local"
+      ],
+      "discover_models": false
+    },
+    {
+      "id": "video",
+      "base_url": "http://192.168.1.106:8000/v1",
+      "capabilities": [
+        "videos"
+      ],
+      "models": [
+        "video-local"
+      ],
+      "discover_models": false
+    }
+  ]
+}
