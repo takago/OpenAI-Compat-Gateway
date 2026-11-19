@@ -84,3 +84,5 @@ MIT License．Copyright (c) 2026 TAKAGO LAB．
 ## HTTPSバックエンドの証明書
 
 `gateway.py` は `/etc/ssl/certs/ca-certificates.crt` を `SSL_CERT_FILE` と `REQUESTS_CA_BUNDLE` に設定します．このパスを持つLinux環境を想定しています．証明書の検証を無効にはしません．
+
+モデル削除：手動登録と自動検出のどちらも管理画面から削除できます．削除した自動検出モデルは再取得で復活しません．再び使うには手動登録します．公開名の編集はバックエンド側のモデルIDの変更ではありません．

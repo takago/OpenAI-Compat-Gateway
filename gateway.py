@@ -414,6 +414,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             with store.db() as db:
                 if db.execute("SELECT 1 FROM backends WHERE id=?", (bid,)).fetchone() is None:
                     raise HTTPException(404, "Backend not found")
+                db.execute("DELETE FROM excluded_models WHERE backend_id=? AND upstream_id=?", (bid, upstream))
                 db.execute("""INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual)
                               VALUES(?,?,?,?,1,1)""",
                            (bid, upstream, public, int(bool(data.get("published", False)))))
@@ -425,11 +426,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def delete_manual_model(request: Request):
         admin_guard(request, True)
         data = await request.json()
+        bid, upstream = data.get("backend_id"), data.get("upstream_id")
         with store.db() as db:
-            result = db.execute("DELETE FROM models WHERE backend_id=? AND upstream_id=? AND manual=1",
-                                (data.get("backend_id"), data.get("upstream_id")))
-            if not result.rowcount:
-                raise HTTPException(404, "Manual model not found")
+            row = db.execute("SELECT manual FROM models WHERE backend_id=? AND upstream_id=?", (bid, upstream)).fetchone()
+            if row is None:
+                raise HTTPException(404, "Model not found")
+            if not row["manual"]:
+                # Keep a tombstone so discovery cannot re-add a deliberately removed model.
+                db.execute("INSERT OR IGNORE INTO excluded_models(backend_id,upstream_id) VALUES (?,?)", (bid, upstream))
+            db.execute("DELETE FROM models WHERE backend_id=? AND upstream_id=?", (bid, upstream))
         return {"ok": True}
 
     @app.patch("/admin/api/models")

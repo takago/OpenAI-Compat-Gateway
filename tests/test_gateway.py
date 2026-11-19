@@ -144,3 +144,25 @@ async def test_manual_model_without_models_endpoint_and_https_ca(app):
             assert '/v1/chat/completions' in paths
             assert (await c.request('DELETE','/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'custom-model'})).status_code==200
             assert (await c.get('/v1/models',headers=auth)).json()['data']==[]
+
+@pytest.mark.asyncio
+async def test_delete_discovered_model_stays_deleted_on_refresh_and_can_restore_manually(app):
+    def backend(req):
+        return httpx.Response(200, json={'data': [{'id': 'old-wrong-id'}]})
+    async with app.router.lifespan_context(app):
+        await app.state.client.aclose()
+        app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://gateway') as c:
+            await c.post('/admin/api/setup',json={'password':'long-test-password'})
+            csrf=(await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            h={'x-csrf-token':csrf}
+            assert (await c.post('/admin/api/backends', headers=h, json={'id':'local','url':'http://gpu.local/v1','capabilities':['chat'],'discover':True})).status_code==200
+            state=(await c.get('/admin/api/state')).json()
+            assert any(m['upstream_id']=='old-wrong-id' for m in state['models'])
+            assert (await c.request('DELETE','/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'old-wrong-id'})).status_code==200
+            assert (await c.post('/admin/api/discover',headers=h)).status_code==200
+            assert (await c.get('/admin/api/state')).json()['models']==[]
+            assert (await c.post('/admin/api/models',headers=h,json={'backend_id':'local','upstream_id':'old-wrong-id','public_id':'corrected','published':True})).status_code==200
+            assert (await c.post('/admin/api/discover',headers=h)).status_code==200
+            models=(await c.get('/admin/api/state')).json()['models']
+            assert len(models)==1 and models[0]['public_id']=='corrected' and models[0]['manual']==1

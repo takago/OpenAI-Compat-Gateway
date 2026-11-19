@@ -56,3 +56,5 @@ If a backend does not provide `GET /v1/models`, turn off model auto-discovery fo
 ## HTTPS certificates
 
 `gateway.py` sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` on Linux. Certificate verification remains enabled.
+
+Model removal: Administrators can delete manually added and discovered models. Deleted discovered IDs are excluded from future refreshes; manually adding the model again restores it. Editing the public model name does not change the upstream model ID.

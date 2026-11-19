@@ -58,6 +58,11 @@ class Store:
                 PRIMARY KEY(backend_id, upstream_id),
                 FOREIGN KEY(backend_id) REFERENCES backends(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS excluded_models (
+                backend_id TEXT NOT NULL, upstream_id TEXT NOT NULL,
+                PRIMARY KEY (backend_id, upstream_id),
+                FOREIGN KEY (backend_id) REFERENCES backends(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS api_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
                 hash TEXT NOT NULL UNIQUE, capabilities TEXT NOT NULL, models TEXT NOT NULL,
@@ -155,6 +160,8 @@ class Store:
         with self.db() as db:
             db.execute("UPDATE models SET seen=0 WHERE backend_id=? AND manual=0", (backend_id,))
             for mid in sorted(model_ids):
+                if db.execute("SELECT 1 FROM excluded_models WHERE backend_id=? AND upstream_id=?", (backend_id, mid)).fetchone():
+                    continue
                 row = db.execute("SELECT 1 FROM models WHERE backend_id=? AND upstream_id=?", (backend_id, mid)).fetchone()
                 if row:
                     db.execute("UPDATE models SET seen=1 WHERE backend_id=? AND upstream_id=?", (backend_id, mid))
