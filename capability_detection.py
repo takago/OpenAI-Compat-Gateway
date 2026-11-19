@@ -1,11 +1,12 @@
-"""Non-destructive discovery of OpenAI-compatible HTTP endpoints.
+"""Conservative, non-destructive discovery of OpenAI-compatible API routes.
 
-An endpoint can exist without being operational. Never issue inference POSTs.
+Only metadata and safe GET/OPTIONS are used; inference POST is never sent.
+A missing/ambiguous response is *not* evidence that a previously configured
+capability has disappeared.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 from urllib.parse import urlsplit
 
 import httpx
@@ -26,71 +27,87 @@ ENDPOINTS = {
 
 
 def capabilities_from_openapi(document: object, base_path: str) -> set[str]:
-    """Only count POST routes that match the base URL's /v1 prefix."""
     if not isinstance(document, dict) or not isinstance(document.get("paths"), dict):
         raise ValueError("OpenAPI paths missing")
-    result = set()
+    paths = document["paths"]
     prefix = base_path.rstrip("/")
-    for cap, path in ENDPOINTS.items():
-        candidates = {prefix + "/" + path, "/v1/" + path}
+    detected = set()
+    for capability, suffix in ENDPOINTS.items():
+        candidates = {f"{prefix}/{suffix}", f"/v1/{suffix}"}
         if prefix == "/v1":
-            candidates.add("/" + path)
-        if any(isinstance(document["paths"].get(p), dict) and "post" in document["paths"][p]
-               for p in candidates):
-            result.add(cap)
-    return result
+            candidates.add(f"/{suffix}")
+        if any(isinstance(paths.get(p), dict) and
+               any(method.lower() == "post" for method in paths[p]) for p in candidates):
+            detected.add(capability)
+    return detected
+
+
+def _allows_post(response: httpx.Response) -> bool:
+    return "POST" in {item.strip().upper() for item in response.headers.get("allow", "").split(",")}
 
 
 async def detect_capabilities(client: httpx.AsyncClient, base_url: str, headers: dict) -> dict:
-    """Use OpenAPI first. If unavailable, probe GET/OPTIONS without generating content.
+    """Find *positively identified* routes without making any generation calls.
 
-    A 405 is usable only when a nonexistent control path does NOT behave alike.
-    OPTIONS is trusted only when Allow explicitly includes POST. Ambiguous routes
-    remain unverified, not silently marked as present.
+    POST in a valid target's Allow header is evidence only if a deliberately
+    nonexistent sibling route does not advertise the same thing. Authentication
+    failures and generic fallback handlers remain inconclusive.
     """
-    root = base_url[:-3] if base_url.endswith("/v1") else base_url
-    parsed = urlsplit(base_url)
-    problems = []
+    base_url = base_url.rstrip("/")
+    path = urlsplit(base_url).path.rstrip("/")
+    root = base_url[:-3] if path.endswith("/v1") else base_url
+    openapi_reason = ""
     try:
-        r = await client.get(root + "/openapi.json", headers=headers, timeout=5)
-        if r.status_code == 200:
-            found = capabilities_from_openapi(r.json(), parsed.path)
-            return {"status": "ok", "source": "openapi", "capabilities": sorted(found), "message": ""}
-        problems.append(f"OpenAPI: HTTP {r.status_code}")
-    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
-        problems.append(f"OpenAPI: {str(exc)[:100]}")
+        response = await client.get(root + "/openapi.json", headers=headers, timeout=5)
+        if response.status_code == 200:
+            found = capabilities_from_openapi(response.json(), path)
+            if found:
+                return {"status": "ok", "source": "openapi", "capabilities": sorted(found),
+                        "message": "OpenAPIのPOSTルートを確認しました．"}
+            openapi_reason = "OpenAPIに対応POSTルートの記載がありません"
+        else:
+            openapi_reason = f"OpenAPI: HTTP {response.status_code}"
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        openapi_reason = f"OpenAPI: {str(exc)[:100]}"
 
-    # Some servers expose a global catch-all 405/OPTIONS handler. Compare it
-    # to a deliberately nonexistent sibling endpoint before believing a probe.
-    async def probe(cap: str, path: str):
-        target = base_url + "/" + path
-        control = base_url + "/__ocg_probe_nonexistent_728e0d/" + path
-        try:
-            a, b = await asyncio.gather(
-                client.get(target, headers=headers, timeout=4),
-                client.get(control, headers=headers, timeout=4),
-            )
-            if b.status_code == a.status_code and b.headers.get("allow", "") == a.headers.get("allow", ""):
-                return None
-            if a.status_code == 405 and b.status_code in (404, 405):
-                allow = {m.strip().upper() for m in a.headers.get("allow", "").split(",")}
-                if not allow or "POST" in allow:
-                    return cap
-            # A GET response alone does not prove that POST is supported.
-            opt = await client.options(target, headers=headers, timeout=4)
-            ctrl = await client.options(control, headers=headers, timeout=4)
-            allow = {m.strip().upper() for m in opt.headers.get("allow", "").split(",")}
-            ctrl_allow = {m.strip().upper() for m in ctrl.headers.get("allow", "").split(",")}
-            if "POST" in allow and "POST" not in ctrl_allow:
-                return cap
-        except httpx.HTTPError:
-            pass
+    # A single control route is sufficient to detect global middleware that
+    # returns generic 405 or OPTIONS Allow: POST for every URL.
+    control = base_url + "/__openai_compat_gateway_missing_route_92c4b8"
+    try:
+        control_get, control_options = await asyncio.gather(
+            client.get(control, headers=headers, timeout=5),
+            client.options(control, headers=headers, timeout=5),
+        )
+    except httpx.HTTPError:
+        control_get = control_options = None
+
+    async def probe(capability: str, suffix: str):
+        target = base_url + "/" + suffix
+        for method in ("GET", "OPTIONS"):
+            try:
+                response = await client.request(method, target, headers=headers, timeout=5)
+            except httpx.HTTPError:
+                continue
+            baseline = control_get if method == "GET" else control_options
+            if baseline is None or not _allows_post(response):
+                continue
+            # 405 on GET with Allow POST or an explicit OPTIONS Allow POST is
+            # meaningful only if the nonexistent route is distinguishable.
+            if method == "GET" and response.status_code != 405:
+                continue
+            if method == "OPTIONS" and response.status_code not in (200, 204, 405):
+                continue
+            if _allows_post(baseline):
+                continue
+            if baseline.status_code in (401, 403):
+                continue
+            return capability
         return None
 
-    found = await asyncio.gather(*(probe(cap, path) for cap, path in ENDPOINTS.items()))
-    caps = sorted(x for x in found if x)
-    if caps:
-        return {"status": "partial", "source": "http-probe", "capabilities": caps,
-                "message": "HTTPで確認できた機能のみ検出しました．未検出は機能なしを意味しません．"}
+    results = await asyncio.gather(*(probe(name, suffix) for name, suffix in ENDPOINTS.items()))
+    found = sorted(x for x in results if x)
+    if found:
+        return {"status": "partial", "source": "http-probe", "capabilities": found,
+                "message": "HTTPで存在を確認できた機能です．未検出は非対応を意味しません．"}
     return {"status": "unknown", "source": "none", "capabilities": [],
-            "message": "API機能を確認できませんでした．手動指定できます． " + "; ".join(problems)[:180]}
+            "message": "機能を確定できませんでした．既存設定は保持します． " + openapi_reason[:120]}

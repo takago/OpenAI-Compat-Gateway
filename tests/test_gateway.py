@@ -199,3 +199,54 @@ async def test_manual_capability_override_and_persistence(app):
             state=(await c.get('/admin/api/state')).json()
             assert json.loads(state['backends'][0]['capabilities'])==['chat']
             assert json.loads(state['backends'][0]['detected_capabilities'])==['videos']
+
+@pytest.mark.asyncio
+async def test_probe_ignores_global_405_and_empty_openapi():
+    from capability_detection import detect_capabilities
+    def backend(request):
+        if request.url.path == '/openapi.json':
+            return httpx.Response(200, json={'paths': {}})
+        return httpx.Response(405, headers={'Allow': 'POST'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(backend)) as c:
+        result = await detect_capabilities(c, 'http://gpu.local/v1', {})
+    assert result['status'] == 'unknown'
+    assert result['capabilities'] == []
+
+
+@pytest.mark.asyncio
+async def test_probe_ignores_authentication_and_catchall():
+    from capability_detection import detect_capabilities
+    for status in (200, 401, 403):
+        def backend(request):
+            if request.url.path == '/openapi.json':
+                return httpx.Response(404)
+            return httpx.Response(status, headers={'Allow': 'POST'} if status == 200 else {})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(backend)) as c:
+            result = await detect_capabilities(c, 'http://gpu.local/v1', {})
+        assert result['capabilities'] == []
+
+
+@pytest.mark.asyncio
+async def test_partial_refresh_never_removes_existing_auto_caps(app):
+    def backend(req):
+        if req.url.path == '/openapi.json': return httpx.Response(404)
+        if req.url.path == '/v1/models': return httpx.Response(200, json={'data': []})
+        if req.url.path == '/v1/videos' and req.method == 'GET':
+            return httpx.Response(405, headers={'Allow': 'POST'})
+        return httpx.Response(404)
+    async with app.router.lifespan_context(app):
+        await app.state.client.aclose()
+        app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://gateway') as c:
+            await c.post('/admin/api/setup', json={'password': 'long-test-password'})
+            csrf = (await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            h={'x-csrf-token':csrf}
+            r=await c.post('/admin/api/backends',headers=h,json={'id':'one','url':'http://gpu.local/v1','auto_capabilities':True})
+            assert r.status_code == 200
+            assert json.loads((await c.get('/admin/api/state')).json()['backends'][0]['capabilities']) == ['videos']
+            with app.state.store.db() as db:
+                db.execute("UPDATE backends SET capabilities=? WHERE id='one'", (json.dumps(['chat', 'videos']),))
+            r=await c.post('/admin/api/discover', headers=h)
+            assert r.status_code == 200
+            caps=set(json.loads((await c.get('/admin/api/state')).json()['backends'][0]['capabilities']))
+            assert caps=={'chat', 'videos'}

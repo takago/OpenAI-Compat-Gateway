@@ -21,10 +21,6 @@ from starlette.background import BackgroundTask
 from management import CAPABILITIES, Store, password_check, validate_url
 from capability_detection import detect_capabilities
 
-
-os.environ["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
-os.environ["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
-
 LOG = logging.getLogger("compat_gateway")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length"}
@@ -144,9 +140,13 @@ def create_app(config_path: str | None = None) -> FastAPI:
             result = await detect_capabilities(app.state.client, row["url"], headers)
             caps = result["capabilities"]
             with store.db() as db:
-                if row.get("auto_capabilities") and result["status"] in {"ok", "partial"}:
+                if row.get("auto_capabilities") and caps:
+                    # Positive-only discovery: add confirmed features, never
+                    # silently remove previously configured/working routes.
+                    existing = set(json.loads(row["capabilities"]))
+                    merged = sorted(existing | set(caps))
                     db.execute("UPDATE backends SET capabilities=?, detected_capabilities=?, detection_status=?, detection_source=? WHERE id=?",
-                               (json.dumps(caps), json.dumps(caps), result["status"], result["source"], row["id"]))
+                               (json.dumps(merged), json.dumps(caps), result["status"], result["source"], row["id"]))
                 else:
                     db.execute("UPDATE backends SET detected_capabilities=?, detection_status=?, detection_source=? WHERE id=?",
                                (json.dumps(caps), result["status"], result["source"], row["id"]))
@@ -406,7 +406,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 url=excluded.url,capabilities=CASE WHEN excluded.auto_capabilities=1 THEN backends.capabilities ELSE excluded.capabilities END,
                 key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,auto_capabilities=excluded.auto_capabilities,
                 api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END""",
-                (bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key,int(auto_caps)))
+                (bid,url,json.dumps([] if auto_caps else caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key,int(auto_caps)))
         cached.pop(bid,None)
         result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
         return {"ok":True, "discovery":result}

@@ -49,8 +49,8 @@ MIT License. Copyright (c) 2026 TAKAGO LAB.
 - Copy an API key at issue or rotation time. Previously issued secrets cannot be displayed again because only their hashes are stored. Rotation revokes the old secret; keys can be deleted or their permissions and expiration modified.
 - Existing SQLite data is preserved. Back up the database before installing an update with `sudo ./install.sh`.
 
-## Automatic API capability discovery (v0.3.2)
+## Automatic API capability discovery (v0.3.3)
 
-On backend save and explicit refresh, the gateway collects models from `/v1/models` and independently discovers endpoint capabilities. It checks `/openapi.json` for POST operations first, then uses **GET/OPTIONS only** (with a nonexistent-path control) when OpenAPI metadata is missing. It never submits generation POST requests during discovery.
+Register a backend URL (ending in `/v1`) and optionally its API key. The gateway discovers models from `/v1/models` and attempts non-destructive capability discovery on save or explicit refresh. OpenAPI metadata is used when available, but **is not required**. Otherwise safe `GET` / `OPTIONS` checks are compared with a nonexistent control URL; inference `POST` requests are never sent.
 
-New backends default to automatic discovery. If endpoints cannot be verified, existing capability assignments are retained and the dashboard reports an unknown result; administrators can switch to manual selection. Existing backends retain their previous manual configuration after upgrade until explicitly switched to automatic discovery. Detection proves route existence, not successful model execution. Models remain unpublished by default.
+HTTP discovery cannot conclusively enumerate every supported route. Only positively identified endpoints (e.g., a distinct `Allow: POST` response) are reported. Ambiguous or authentication-blocked routes are **unknown**, not unsupported. Rediscovery adds confirmed features without automatically removing existing assignments. To remove an obsolete capability, switch to manual mode and edit the selection. Automatic discovery of a new backend does not enable unverified capabilities. New models are unpublished until approved by an administrator.
