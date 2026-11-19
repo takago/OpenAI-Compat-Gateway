@@ -58,3 +58,7 @@ If a backend does not provide `GET /v1/models`, turn off model auto-discovery fo
 `gateway.py` sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` on Linux. Certificate verification remains enabled.
 
 Model removal: Administrators can delete manually added and discovered models. Deleted discovered IDs are excluded from future refreshes; manually adding the model again restores it. Editing the public model name does not change the upstream model ID.
+
+## Admin dashboard (v0.3.6)
+
+The admin interface has four tabs: **Backends**, **Models**, **API Keys**, and **Usage**. Changing tabs does not automatically refresh data or discard unsaved form inputs. Model discovery and its status are shown in the Models tab. Project attribution and the GitHub link appear in the footer.
