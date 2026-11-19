@@ -1,6 +1,6 @@
 # OpenAI-Compat-Gateway
 
-複数のPC上のOpenAI互換APIを単一の `/v1` に統合する軽量な非公式ゲートウェイです．LLM（複数Ollama，vLLMなど），音声認識・音声合成，画像生成・編集，動画生成を対象とします．OpenAI公式の製品ではありません．
+このソフトウェアはOpenAIとは無関係の独立プロジェクトです．複数のPC上のOpenAI互換APIを単一の `/v1` に統合する軽量な非公式ゲートウェイです．LLM（複数Ollama，vLLMなど），音声認識・音声合成，画像生成・編集，動画生成を対象とします．
 
 **v0.2.2：APIキーごとの有効期限（無期限・7日・30日・90日・日時指定）と，管理画面からの期限更新に対応しています．**
 
@@ -141,7 +141,6 @@ curl -X POST https://ai.example.com/v1/chat/completions \
 .venv/bin/python -m pytest -q
 ```
 
-Copyright (c) 2026 TAKAGO LAB．MIT License．このソフトウェアはOpenAIとは無関係の独立プロジェクトです．
 
 ## APIキーの有効期限
 
