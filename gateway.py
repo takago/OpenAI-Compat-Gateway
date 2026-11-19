@@ -7,6 +7,10 @@ import hmac
 import json
 import logging
 import os
+
+# Use the operating system CA certificate bundle for HTTPS backends.
+os.environ["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
+os.environ["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
 import re
 import secrets
 import time
@@ -19,7 +23,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from management import CAPABILITIES, Store, password_check, validate_url
-from capability_detection import detect_capabilities
 
 LOG = logging.getLogger("compat_gateway")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -132,37 +135,13 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(503, f"Missing backend API key environment: {env}")
         return os.getenv(env) if env else None
 
-    async def refresh_capabilities(row):
-        """Read-only inspection; keep existing routing on ambiguous results."""
-        try:
-            key = upstream_key(row)
-            headers = {"authorization": "Bearer " + key} if key else {}
-            result = await detect_capabilities(app.state.client, row["url"], headers)
-            caps = result["capabilities"]
-            with store.db() as db:
-                if row.get("auto_capabilities") and caps:
-                    # Positive-only discovery: add confirmed features, never
-                    # silently remove previously configured/working routes.
-                    existing = set(json.loads(row["capabilities"]))
-                    merged = sorted(existing | set(caps))
-                    db.execute("UPDATE backends SET capabilities=?, detected_capabilities=?, detection_status=?, detection_source=? WHERE id=?",
-                               (json.dumps(merged), json.dumps(caps), result["status"], result["source"], row["id"]))
-                else:
-                    db.execute("UPDATE backends SET detected_capabilities=?, detection_status=?, detection_source=? WHERE id=?",
-                               (json.dumps(caps), result["status"], result["source"], row["id"]))
-            return result
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-            LOG.warning("Capability detection %s failed: %s", row["id"], exc)
-            return {"status": "error", "source": "none", "capabilities": [], "message": str(exc)[:180]}
-
     async def refresh_one(row, force=False):
         if not row["enabled"]:
             return {"backend": row["id"], "status": "skipped", "message": "Disabled"}
         if not force and cached.get(row["id"],0) > time.monotonic():
             return {"backend": row["id"], "status": "cached"}
-        capabilities = await refresh_capabilities(row)
         if not row["discover"]:
-            return {"backend": row["id"], "status": "skipped", "message": "Model discovery disabled", "capability_detection": capabilities}
+            return {"backend": row["id"], "status": "skipped", "message": "Model discovery disabled"}
         try:
             headers = {"authorization":"Bearer " + upstream_key(row)} if upstream_key(row) else {}
             resp = await app.state.client.get(row["url"]+"/models",headers=headers,timeout=8)
@@ -173,10 +152,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
             ids = {m["id"] for m in payload["data"] if isinstance(m,dict) and isinstance(m.get("id"),str) and m["id"]}
             store.discover(row["id"],ids)
             cached[row["id"]] = time.monotonic() + max(1,int(config.get("model_cache_seconds",60)))
-            return {"backend": row["id"], "status": "ok", "models": len(ids), "capability_detection": capabilities}
+            return {"backend": row["id"], "status": "ok", "models": len(ids)}
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
             LOG.warning("Discovery %s failed: %s",row["id"],e)
-            return {"backend": row["id"], "status": "error", "message": str(e)[:300], "capability_detection": capabilities}
+            return {"backend": row["id"], "status": "error", "message": str(e)[:300]}
 
     async def refresh_all(force=False):
         return await asyncio.gather(*(refresh_one(b,force) for b in store.backends()))
@@ -394,19 +373,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
         caps=data.get("capabilities",[])
         if not isinstance(caps,list) or not set(caps)<=CAPABILITIES:
             raise HTTPException(400,"Invalid capabilities")
-        auto_caps = bool(data.get("auto_capabilities", "capabilities" not in data))
-        if not auto_caps and not caps:
-            raise HTTPException(400,"Select at least one capability for manual mode")
+        if not caps:
+            raise HTTPException(400,"Select at least one capability")
         direct_key=data.get("api_key", "")
         if not isinstance(direct_key,str) or len(direct_key)>4096:
             raise HTTPException(400,"Invalid backend API key")
         with store.db() as db:
-            db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,auto_capabilities)
-                VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                url=excluded.url,capabilities=CASE WHEN excluded.auto_capabilities=1 THEN backends.capabilities ELSE excluded.capabilities END,
-                key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,auto_capabilities=excluded.auto_capabilities,
+            db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key)
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                url=excluded.url,capabilities=excluded.capabilities,
+                key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,
                 api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END""",
-                (bid,url,json.dumps([] if auto_caps else caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key,int(auto_caps)))
+                (bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key))
         cached.pop(bid,None)
         result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
         return {"ok":True, "discovery":result}
@@ -418,6 +396,41 @@ def create_app(config_path: str | None = None) -> FastAPI:
             db.execute("DELETE FROM backends WHERE id=?",(backend_id,))
         cached.pop(backend_id,None)
         return {"ok":True}
+
+    @app.post("/admin/api/models")
+    async def add_manual_model(request: Request):
+        admin_guard(request, True)
+        data = await request.json()
+        bid = data.get("backend_id")
+        upstream = data.get("upstream_id")
+        public = data.get("public_id") or upstream
+        if not isinstance(bid, str) or not ID_RE.fullmatch(bid):
+            raise HTTPException(400, "Invalid backend ID")
+        if not isinstance(upstream, str) or not upstream.strip() or len(upstream) > 200:
+            raise HTTPException(400, "Invalid upstream model ID")
+        if not isinstance(public, str) or not public.strip() or len(public) > 200:
+            raise HTTPException(400, "Invalid public model ID")
+        try:
+            with store.db() as db:
+                if db.execute("SELECT 1 FROM backends WHERE id=?", (bid,)).fetchone() is None:
+                    raise HTTPException(404, "Backend not found")
+                db.execute("""INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual)
+                              VALUES(?,?,?,?,1,1)""",
+                           (bid, upstream, public, int(bool(data.get("published", False)))))
+        except __import__("sqlite3").IntegrityError:
+            raise HTTPException(409, "Model ID already exists; edit the existing model instead")
+        return {"ok": True}
+
+    @app.delete("/admin/api/models")
+    async def delete_manual_model(request: Request):
+        admin_guard(request, True)
+        data = await request.json()
+        with store.db() as db:
+            result = db.execute("DELETE FROM models WHERE backend_id=? AND upstream_id=? AND manual=1",
+                                (data.get("backend_id"), data.get("upstream_id")))
+            if not result.rowcount:
+                raise HTTPException(404, "Manual model not found")
+        return {"ok": True}
 
     @app.patch("/admin/api/models")
     async def change_model(request:Request):

@@ -49,8 +49,10 @@ MIT License. Copyright (c) 2026 TAKAGO LAB.
 - Copy an API key at issue or rotation time. Previously issued secrets cannot be displayed again because only their hashes are stored. Rotation revokes the old secret; keys can be deleted or their permissions and expiration modified.
 - Existing SQLite data is preserved. Back up the database before installing an update with `sudo ./install.sh`.
 
-## Automatic API capability discovery (v0.3.3)
+### Manual model registration / モデルの手動登録
 
-Register a backend URL (ending in `/v1`) and optionally its API key. The gateway discovers models from `/v1/models` and attempts non-destructive capability discovery on save or explicit refresh. OpenAPI metadata is used when available, but **is not required**. Otherwise safe `GET` / `OPTIONS` checks are compared with a nonexistent control URL; inference `POST` requests are never sent.
+If a backend does not provide `GET /v1/models`, turn off model auto-discovery for that backend and register the model in **Admin → Model Management → Add model manually**. Specify the backend, the exact upstream model ID, and an optional public alias. A manual model remains routable without `/v1/models`. API capabilities are always selected manually using checkboxes.
 
-HTTP discovery cannot conclusively enumerate every supported route. Only positively identified endpoints (e.g., a distinct `Allow: POST` response) are reported. Ambiguous or authentication-blocked routes are **unknown**, not unsupported. Rediscovery adds confirmed features without automatically removing existing assignments. To remove an obsolete capability, switch to manual mode and edit the selection. Automatic discovery of a new backend does not enable unverified capabilities. New models are unpublished until approved by an administrator.
+## HTTPS certificates
+
+`gateway.py` sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` on Linux. Certificate verification remains enabled.

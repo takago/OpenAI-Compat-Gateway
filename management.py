@@ -88,6 +88,9 @@ class Store:
                 db.execute("ALTER TABLE backends ADD COLUMN detection_status TEXT NOT NULL DEFAULT 'pending'")
             if "detection_source" not in backend_cols:
                 db.execute("ALTER TABLE backends ADD COLUMN detection_source TEXT NOT NULL DEFAULT ''")
+            model_cols = {r[1] for r in db.execute("PRAGMA table_info(models)")}
+            if "manual" not in model_cols:
+                db.execute("ALTER TABLE models ADD COLUMN manual INTEGER NOT NULL DEFAULT 0")
             # Safe in-place schema update for existing SQLite databases.
             cols = {r[1] for r in db.execute("PRAGMA table_info(api_keys)")}
             if "expires_at" not in cols:
@@ -150,7 +153,7 @@ class Store:
 
     def discover(self, backend_id: str, model_ids: set[str]):
         with self.db() as db:
-            db.execute("UPDATE models SET seen=0 WHERE backend_id=?", (backend_id,))
+            db.execute("UPDATE models SET seen=0 WHERE backend_id=? AND manual=0", (backend_id,))
             for mid in sorted(model_ids):
                 row = db.execute("SELECT 1 FROM models WHERE backend_id=? AND upstream_id=?", (backend_id, mid)).fetchone()
                 if row:
@@ -159,7 +162,7 @@ class Store:
                     public_id = mid
                     if db.execute("SELECT 1 FROM models WHERE public_id=?", (mid,)).fetchone():
                         public_id = f"{backend_id}::{mid}"
-                    db.execute("INSERT INTO models VALUES (?,?,?,?,1)", (backend_id, mid, public_id, 0))
+                    db.execute("INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual) VALUES (?,?,?,?,1,0)", (backend_id, mid, public_id, 0))
 
     def log(self, key_id: int, cap: str, model: str | None, status: int, elapsed_ms: int):
         with self.db() as db:
