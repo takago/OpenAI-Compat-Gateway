@@ -68,7 +68,7 @@ sudo systemctl start openai-compat-gateway
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
 
-## v0.4.3: Model endpoint editor
+## v0.4.4: Model endpoint editor
 
 The model table shows only configured endpoints as compact labels such as `v1/chat/completions`. Click **Edit** on an individual model to choose its endpoints with checkboxes; **Save** applies the change and **Cancel** discards it.
 

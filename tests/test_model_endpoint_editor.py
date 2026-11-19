@@ -31,7 +31,8 @@ def test_model_page_has_compact_labels_and_edit_controls():
     assert "node('button','編集')" in page
     assert "endpoint-tag" in page
     assert "const detailRow=node('tr')" in page
-    assert "endpointHeader.append(endpointLabel,edit)" in page
+    assert "endpointHeader.append(endpointLabel);capcell.append(endpointHeader,tags)" in page
+    assert "actions.append(edit,hide,del)" in page
     assert "modrows.push(detailRow)" in page
     assert "detailCell.colSpan=7" in page
     assert "makeChecks(checks,CAPS" in page
