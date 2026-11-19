@@ -1,6 +1,6 @@
 <!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenAI-Compat-Gateway 管理</title>
 <style>
-:root{font-family:system-ui,-apple-system,sans-serif;color-scheme:light dark}body{max-width:1200px;margin:24px auto;padding:0 16px;line-height:1.5}header,.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:1.4rem}h2{font-size:1.08rem;margin:0 0 12px}section{border:1px solid #8885;border-radius:12px;padding:18px;margin:16px 0}label{display:block;font-size:.9rem;margin:8px 0}input,select,button{font:inherit;padding:7px;border:1px solid #8888;border-radius:6px}input[type=text],input[type=url],input[type=password]{width:100%;max-width:560px;box-sizing:border-box}input[type=checkbox]{width:17px;height:17px;vertical-align:middle}button{cursor:pointer}button.primary{background:#2168ab;color:#fff;border-color:#2168ab}button.danger{color:#c44}button:disabled{opacity:.5;cursor:default}.muted,small{opacity:.7}table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;text-align:left;border-bottom:1px solid #8884;font-size:.88rem;overflow-wrap:anywhere;vertical-align:middle}.scroll{overflow:auto}.hidden{display:none!important}#app{display:none}.chips{display:flex;flex-wrap:wrap;gap:7px}.chips label{display:inline-flex;align-items:center;gap:5px;margin:0;padding:6px 9px;background:#8882;border-radius:7px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.toolbar>*{flex:0 0 auto}.panel{background:#8881;padding:12px;border-radius:9px;margin:10px 0}.key-box{padding:12px;border:1px solid #3a9a7d;border-radius:8px;word-break:break-all}.key-box code{display:block;padding:10px;background:#8882;margin:7px 0}#message{white-space:pre-wrap;min-height:1.4em}summary{cursor:pointer;font-weight:600;margin:8px 0}details{margin:12px 0}td .toolbar{gap:5px}td button{font-size:.8rem;padding:5px}select{max-width:100%}
+:root{font-family:system-ui,-apple-system,sans-serif;color-scheme:light dark}body{max-width:1200px;margin:24px auto;padding:0 16px;line-height:1.5}header,.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:1.4rem}h2{font-size:1.08rem;margin:0 0 12px}section{border:1px solid #8885;border-radius:12px;padding:18px;margin:16px 0}label{display:block;font-size:.9rem;margin:8px 0}input,select,button{font:inherit;padding:7px;border:1px solid #8888;border-radius:6px}input[type=text],input[type=url],input[type=password]{width:100%;max-width:560px;box-sizing:border-box}input[type=checkbox]{width:17px;height:17px;vertical-align:middle}button{cursor:pointer}button.primary{background:#2168ab;color:#fff;border-color:#2168ab}button.danger{color:#c44}button:disabled{opacity:.5;cursor:default}.muted,small{opacity:.7}table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;text-align:left;border-bottom:1px solid #8884;font-size:.88rem;overflow-wrap:anywhere;vertical-align:middle}.scroll{overflow:auto}.hidden{display:none!important}#app{display:none}.chips{display:flex;flex-wrap:wrap;gap:7px}.chips label{display:inline-flex;align-items:center;gap:5px;margin:0;padding:6px 9px;background:#8882;border-radius:7px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.toolbar>*{flex:0 0 auto}.panel{background:#8881;padding:12px;border-radius:9px;margin:10px 0}.key-box{padding:12px;border:1px solid #3a9a7d;border-radius:8px;word-break:break-all}.key-box code{display:block;padding:10px;background:#8882;margin:7px 0}#message{white-space:pre-wrap;min-height:1.4em}summary{cursor:pointer;font-weight:600;margin:8px 0}details{margin:12px 0}td .toolbar{gap:5px}td button{font-size:.8rem;padding:5px}select{max-width:100%}.model-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:160px}.model-heading button{flex-shrink:0}.model-editor-row td{padding:0 7px 12px;border-bottom:1px solid #8885}.model-editor-row .endpoint-editor{margin:0;padding:12px;min-width:0}
 .tab-nav{display:flex;gap:5px;flex-wrap:wrap;border-bottom:1px solid #8885;margin:16px 0 0;padding:0 0 7px}
 .tab-nav button{border:0;border-radius:8px 8px 0 0;background:transparent;padding:10px 15px;font-weight:600;color:inherit}
 .tab-nav button[aria-selected=true]{background:#2168ab;color:white}
@@ -64,38 +64,47 @@ async function api(path,method='GET',data){const headers={Accept:'application/js
 async function load(){try{const r=await api('setup-status');E('setup').classList.toggle('hidden',!r.needs_setup);if(r.needs_setup){E('login').classList.add('hidden');E('app').style.display='none';E('app-subtitle').style.display='none';E('app-subtitle').style.display='none';return}}catch(e){say(e.message)}try{state=await api('state');csrf=state.csrf;E('login').classList.add('hidden');E('app').style.display='block';E('app-subtitle').style.display='';E('logout').style.display='';switchTab(activeTab);render()}catch{E('login').classList.remove('hidden');E('app').style.display='none';E('app-subtitle').style.display='none';E('app-subtitle').style.display='none'}}
 async function act(fn,success='保存しました'){try{const result=await fn();await load();say(success);return result}catch(e){say('エラー: '+e.message);return null}}
 function render(){
-const backendRows=state.backends.map(b=>{const tr=node('tr');td(tr,b.id);td(tr,b.url);td(tr,arr(b.capabilities).join(' / ')||'登録モデルなし');td(tr,b.enabled?'有効':'停止');const c=node('td'),ed=node('button','編集'),diagnose=node('button','接続診断'),del=node('button','削除');ed.onclick=()=>{E('backend-id').value=b.id;E('backend-url').value=b.url;E('backend-enabled').checked=!!b.enabled;E('backend-discover').checked=!!b.discover;E('backend-apikey').value='';E('backend-details').open=true;E('backend-details').scrollIntoView({behavior:'smooth',block:'start'})};diagnose.onclick=async()=>{try{const r=await api('backends/'+encodeURIComponent(b.id)+'/diagnose','POST');say(b.id+'：'+r.checks.map(x=>x.path+' → '+x.message).join(' / '))}catch(e){say(e.message)}};del.className='danger';del.onclick=()=>{if(confirm(b.id+' を削除しますか？ 所属モデルも削除されます．'))act(()=>api('backends/'+encodeURIComponent(b.id),'DELETE'))};c.append(ed,diagnose,del);tr.append(c);return tr});E('backend-list').replaceChildren(table(['バックエンド','URL','モデルから集約したAPI','状態','操作'],backendRows));
+const backendRows=state.backends.map(b=>{const tr=node('tr');td(tr,b.id);td(tr,b.url);td(tr,arr(b.capabilities).join(' / ')||'登録モデルなし');td(tr,b.enabled?'有効':'停止');const c=node('td'),ed=node('button','編集'),del=node('button','削除');ed.onclick=()=>{E('backend-id').value=b.id;E('backend-url').value=b.url;E('backend-enabled').checked=!!b.enabled;E('backend-discover').checked=!!b.discover;E('backend-apikey').value='';E('backend-details').open=true;E('backend-details').scrollIntoView({behavior:'smooth',block:'start'})};del.className='danger';del.onclick=()=>{if(confirm(b.id+' を削除しますか？ 所属モデルも削除されます．'))act(()=>api('backends/'+encodeURIComponent(b.id),'DELETE'))};c.append(ed,del);tr.append(c);return tr});E('backend-list').replaceChildren(table(['バックエンド','URL','モデルから集約したAPI','状態','操作'],backendRows));
 E('manual-model-backend').replaceChildren(...state.backends.map(b=>new Option(b.id,b.id)));const filter=E('model-filter').value;E('model-filter').replaceChildren(new Option('すべて',''),...state.backends.map(b=>new Option(b.id,b.id)));E('model-filter').value=filter;
 const models=state.models.filter(m=>(!filter||m.backend_id===filter)&&(E('show-hidden').checked||!m.hidden));
-const modrows=models.map(m=>{
- const tr=node('tr'),c=node('td'),pub=node('input'),alias=node('input');
- td(tr,m.backend_id);td(tr,m.upstream_id);
- alias.type='text';alias.value=m.public_id;alias.dataset.modelAlias='1';alias.dataset.backend=m.backend_id;alias.dataset.upstream=m.upstream_id;
- c.append(alias);tr.append(c);
+const modrows=[];
+for(const m of models){
+ const tr=node('tr'),pub=node('input'),alias=node('input');
+ const headingCell=node('td'),heading=node('div');heading.className='model-heading';
+ const modelName=node('span',m.upstream_id),edit=node('button','編集');edit.type='button';
+ edit.setAttribute('aria-expanded','false');edit.setAttribute('aria-label',m.upstream_id+' の対応エンドポイントを編集');
+ heading.append(modelName,edit);headingCell.append(heading);tr.append(headingCell);
+ td(tr,m.backend_id);
+ const aliasCell=node('td');alias.type='text';alias.value=m.public_id;
+ alias.dataset.modelAlias='1';alias.dataset.backend=m.backend_id;alias.dataset.upstream=m.upstream_id;
+ aliasCell.append(alias);tr.append(aliasCell);
  const capcell=node('td'),tags=node('div');tags.className='endpoint-tags';
  const existing=arr(m.endpoints);
  if(existing.length){for(const endpoint of existing){const tag=node('span',endpoint.replace(/^\w+\s+\//,''));tag.className='endpoint-tag';tag.title=endpoint;tags.append(tag)}}
  else{const missing=node('span','未設定');missing.className='muted';tags.append(missing)}
- const editor=node('div');editor.className='endpoint-editor hidden';
- const title=node('strong','対応エンドポイントを選択');const checks=node('div');checks.className='chips';
- const toolbar=node('div');toolbar.className='toolbar';
- const save=node('button','保存'),cancel=node('button','キャンセル');save.type='button';save.className='primary';cancel.type='button';
- save.onclick=()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,endpoints:checkedIn(checks)}),'対応エンドポイントを保存しました');
- cancel.onclick=()=>editor.classList.add('hidden');toolbar.append(cancel,save);editor.append(title,checks,toolbar);
- const edit=node('button','編集');edit.type='button';edit.onclick=()=>{
-   if(!editor.classList.contains('hidden')){editor.classList.add('hidden');return}
-   makeChecks(checks,CAPS,'edit-'+m.backend_id+'-'+m.upstream_id+'-',existing);
-   editor.classList.remove('hidden');
- };
- capcell.append(tags,edit,editor);tr.append(capcell);
+ capcell.append(tags);tr.append(capcell);
  const publish=node('td');pub.type='checkbox';pub.checked=!!m.published;pub.dataset.modelPublished='1';publish.append(pub);tr.append(publish);
  td(tr,m.manual?'手動登録':m.seen?'検出済':'現在未検出');
  const actions=node('td'),hide=node('button',m.hidden?'表示':'非表示'),del=node('button','削除');
  hide.onclick=()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,hidden:!m.hidden}),m.hidden?'表示しました':'管理一覧から非表示にしました');
  del.className='danger';del.onclick=()=>{const msg=m.manual?' を削除しますか？':' を削除し，今後の自動取得でも追加しないようにしますか？';if(confirm(m.public_id+msg))act(()=>api('models','DELETE',{backend_id:m.backend_id,upstream_id:m.upstream_id}),'モデルを削除しました')};
- actions.append(hide,del);tr.append(actions);return tr
-});
-E('model-list').replaceChildren(table(['バックエンド','モデルID','公開モデルID','対応エンドポイント','公開','状態','操作'],modrows));
+ actions.append(hide,del);tr.append(actions);modrows.push(tr);
+ const detailRow=node('tr');detailRow.className='model-editor-row hidden';
+ const detailCell=node('td');detailCell.colSpan=7;const editor=node('div');editor.className='endpoint-editor';
+ const title=node('strong','対応エンドポイントを選択');const checks=node('div');checks.className='chips';
+ const toolbar=node('div');toolbar.className='toolbar';
+ const save=node('button','保存'),cancel=node('button','キャンセル');save.type='button';save.className='primary';cancel.type='button';
+ const closeEditor=()=>{detailRow.classList.add('hidden');edit.setAttribute('aria-expanded','false');edit.textContent='編集'};
+ save.onclick=()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,endpoints:checkedIn(checks)}),'対応エンドポイントを保存しました');
+ cancel.onclick=closeEditor;toolbar.append(cancel,save);editor.append(title,checks,toolbar);detailCell.append(editor);detailRow.append(detailCell);
+ edit.onclick=()=>{
+   if(!detailRow.classList.contains('hidden')){closeEditor();return}
+   makeChecks(checks,CAPS,'edit-'+m.backend_id+'-'+m.upstream_id+'-',existing);
+   detailRow.classList.remove('hidden');edit.setAttribute('aria-expanded','true');edit.textContent='閉じる';
+ };
+ modrows.push(detailRow);
+}
+E('model-list').replaceChildren(table(['モデルID','バックエンド','公開モデルID','対応エンドポイント','公開','状態','操作'],modrows));
 E('model-count').textContent=state.models.filter(m=>m.published).length+' / '+state.models.length+' 公開';
 const keyrows=state.keys.map(k=>{const tr=node('tr');td(tr,k.name);td(tr,'•••••••• ('+k.id+')');td(tr,arr(k.capabilities).join(', '));td(tr,arr(k.models).join(', '));td(tr,k.expires_at===null?'無期限':new Date(k.expires_at*1000).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}));td(tr,!k.enabled?'無効':k.expires_at&&k.expires_at<Date.now()/1000?'期限切れ':'有効');const c=node('td'),edit=node('button','権限・期限'),rotate=node('button','再発行'),del=node('button','削除');edit.onclick=()=>editKey(k);rotate.onclick=async()=>{if(!confirm(k.name+' のキーを再発行しますか？以前のキーは即時無効になります．'))return;const r=await act(()=>api('keys/'+k.id+'/rotate','POST'),'キーを再発行しました');if(r)revealKey(r.key,k.name+' の新しいキー')};del.className='danger';del.onclick=()=>{if(confirm(k.name+' のキーを完全に削除しますか？'))act(()=>api('keys/'+k.id,'DELETE'),'APIキーを削除しました')};c.append(edit,rotate,del);tr.append(c);return tr});E('key-list').replaceChildren(table(['名前','キー','許可エンドポイント','モデル','期限','状態','操作'],keyrows));
 makeChecks(E('key-model-options'),state.models.filter(m=>m.published).map(m=>[m.public_id,m.public_id]),'km-',[]);E('key-model-options').classList.toggle('hidden',E('key-all-models').checked);const metrows=state.metrics.map(x=>{const tr=node('tr');[x.key_id,x.capability,x.requests,x.average_ms].forEach(v=>td(tr,v));return tr});E('metrics').replaceChildren(table(['キーID','エンドポイント','件数','平均応答開始 ms'],metrows));

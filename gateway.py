@@ -577,29 +577,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
             db.execute("UPDATE api_keys SET enabled=?,capabilities=?,models=?,expires_at=? WHERE id=?",(int(bool(data.get("enabled",row["enabled"]))),json.dumps(normalize(caps) if caps is not None else json.loads(row["capabilities"])),json.dumps(models if models is not None else json.loads(row["models"])),expires_at,key_id))
         return {"ok":True}
 
-    @app.post("/admin/api/backends/{backend_id}/diagnose")
-    async def diagnose_backend(backend_id: str, request: Request):
-        admin_guard(request, True)
-        row=next((b for b in store.backends() if b["id"]==backend_id),None)
-        if row is None:
-            raise HTTPException(404,"Backend not found")
-        result={"backend":backend_id,"checks":[]}
-        for suffix in ("/models", "/healthz"):
-            url=row["url"]+suffix if suffix=="/models" else row["url"][:-3]+suffix
-            try:
-                key=upstream_key(row)
-                response=await app.state.client.get(url,headers={"authorization":"Bearer "+key} if key else {},timeout=6)
-                status=response.status_code
-                description=("OK" if 200<=status<300 else "Authentication required" if status in (401,403) else "Endpoint not available" if status==404 else "HTTP "+str(status))
-                result["checks"].append({"path":suffix,"status":status,"message":description})
-            except httpx.ConnectError as exc:
-                result["checks"].append({"path":suffix,"status":None,"message":"TLS / connection error: "+str(exc)[:180]})
-            except httpx.TimeoutException:
-                result["checks"].append({"path":suffix,"status":None,"message":"Timeout"})
-            except httpx.HTTPError as exc:
-                result["checks"].append({"path":suffix,"status":None,"message":str(exc)[:180]})
-        return result
-
     @app.get("/admin/api/backup")
     async def download_backup(request: Request):
         admin_guard(request)

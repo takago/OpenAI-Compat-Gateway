@@ -5,7 +5,7 @@ import pytest
 from management import Store
 
 @pytest.mark.asyncio
-async def test_model_endpoints_visibility_acl_and_diagnostics(tmp_path, monkeypatch):
+async def test_model_endpoints_visibility_acl(tmp_path, monkeypatch):
     monkeypatch.setenv('GATEWAY_DB', str(tmp_path/'gateway.sqlite3'))
     monkeypatch.setenv('ADMIN_COOKIE_SECURE', 'false')
     from gateway import create_app
@@ -43,10 +43,6 @@ async def test_model_endpoints_visibility_acl_and_diagnostics(tmp_path, monkeypa
             assert (await c.get('/v1/models',headers=auth)).json()['data']==[]
             assert (await c.post('/v1/chat/completions',headers=auth,json={'model':'public'})).status_code==404
             assert (await c.patch('/admin/api/models',headers=h,json={**patch,'published':True})).status_code==200
-            r=await c.post('/admin/api/backends/pc/diagnose',headers=h)
-            assert r.status_code==200 and len(r.json()['checks'])==2
-            assert r.json()['checks'][0]['status']==200
-            assert r.json()['checks'][1]['status']==404
             assert (await c.request('DELETE','/admin/api/models',headers=h,json={'backend_id':'pc','upstream_id':'same-model'})).status_code==200
             assert (await c.get('/v1/models',headers=auth)).json()['data']==[]
 
