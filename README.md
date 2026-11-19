@@ -1,7 +1,5 @@
 # OpenAI-Compat-Gateway
 
-Developed by **TAKAGO LAB**, Kanazawa Institute of Technology.
-GitHub: https://github.com/takago
 
 A lightweight, unofficial gateway that consolidates OpenAI-compatible AI APIs running on multiple PCs behind **one `/v1` endpoint**. Supports multiple Ollama/vLLM servers, TTS, STT, image generation/editing, and asynchronous video jobs.
 
