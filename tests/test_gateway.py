@@ -76,3 +76,33 @@ def test_database_secure_and_admin_atomic(tmp_path):
     assert db.create_admin('secure-password-1234')
     assert not db.create_admin('secure-password-5678')
     assert oct((tmp_path/'db.sqlite3').stat().st_mode & 0o777)=='0o600'
+
+@pytest.mark.asyncio
+async def test_key_rotate_delete_and_discovery_errors(app):
+    async with app.router.lifespan_context(app):
+        def backend(req):
+            if req.url.path.endswith('/models'):
+                return httpx.Response(503, text='temporarily unavailable')
+            return httpx.Response(200)
+        await app.state.client.aclose()
+        app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://gateway') as c:
+            await c.post('/admin/api/setup',json={'password':'long-test-password'})
+            csrf=(await c.post('/admin/api/login',json={'password':'long-test-password'})).json()['csrf']
+            h={'x-csrf-token':csrf}
+            response=await c.post('/admin/api/backends',headers=h,json={'id':'bad','url':'http://invalid.local/v1','capabilities':['chat'],'enabled':True,'discover':True})
+            assert response.status_code==200
+            assert response.json()['discovery']['status']=='error'
+            r=await c.post('/admin/api/discover',headers=h)
+            assert r.json()['results'][0]['status']=='error'
+            r=await c.post('/admin/api/keys',headers=h,json={'name':'temp','capabilities':['chat'],'models':['*']})
+            old=r.json()['key']
+            assert (await c.get('/v1/models',headers={'authorization':'Bearer '+old})).status_code==200
+            r=await c.post('/admin/api/keys/1/rotate',headers=h)
+            assert r.status_code==200
+            new=r.json()['key'];assert new!=old
+            assert (await c.get('/v1/models',headers={'authorization':'Bearer '+old})).status_code==401
+            assert (await c.get('/v1/models',headers={'authorization':'Bearer '+new})).status_code==200
+            assert (await c.delete('/admin/api/keys/1',headers=h)).status_code==200
+            assert (await c.get('/v1/models',headers={'authorization':'Bearer '+new})).status_code==401
+            assert (await c.delete('/admin/api/keys/1',headers=h)).status_code==404

@@ -132,23 +132,29 @@ def create_app(config_path: str | None = None) -> FastAPI:
         return os.getenv(env) if env else None
 
     async def refresh_one(row, force=False):
-        if not row["enabled"] or not row["discover"]:
-            return
+        if not row["enabled"]:
+            return {"backend": row["id"], "status": "skipped", "message": "Disabled"}
+        if not row["discover"]:
+            return {"backend": row["id"], "status": "skipped", "message": "Discovery disabled"}
         if not force and cached.get(row["id"],0) > time.monotonic():
-            return
+            return {"backend": row["id"], "status": "cached"}
         try:
             headers = {"authorization":"Bearer " + upstream_key(row)} if upstream_key(row) else {}
             resp = await app.state.client.get(row["url"]+"/models",headers=headers,timeout=8)
             resp.raise_for_status()
-            data = resp.json().get("data",[])
-            ids = {m["id"] for m in data if isinstance(m,dict) and isinstance(m.get("id"),str) and m["id"]}
+            payload = resp.json()
+            if not isinstance(payload,dict) or not isinstance(payload.get("data"),list):
+                raise ValueError("Expected JSON object containing data array (OpenAI /v1/models)")
+            ids = {m["id"] for m in payload["data"] if isinstance(m,dict) and isinstance(m.get("id"),str) and m["id"]}
             store.discover(row["id"],ids)
             cached[row["id"]] = time.monotonic() + max(1,int(config.get("model_cache_seconds",60)))
+            return {"backend": row["id"], "status": "ok", "models": len(ids)}
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
             LOG.warning("Discovery %s failed: %s",row["id"],e)
+            return {"backend": row["id"], "status": "error", "message": str(e)[:300]}
 
     async def refresh_all(force=False):
-        await asyncio.gather(*(refresh_one(b,force) for b in store.backends()))
+        return await asyncio.gather(*(refresh_one(b,force) for b in store.backends()))
 
     def public_models(key):
         result=[]
@@ -346,8 +352,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/admin/api/discover")
     async def discover(request:Request):
         admin_guard(request,True)
-        await refresh_all(True)
-        return {"ok":True}
+        results = await refresh_all(True)
+        return {"ok":True, "results":results}
 
     @app.post("/admin/api/backends")
     async def save_backend(request:Request):
@@ -369,7 +375,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         with store.db() as db:
             db.execute("INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET url=excluded.url,capabilities=excluded.capabilities,key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END",(bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key))
         cached.pop(bid,None)
-        return {"ok":True}
+        result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
+        return {"ok":True, "discovery":result}
 
     @app.delete("/admin/api/backends/{backend_id}")
     async def remove_backend(backend_id:str,request:Request):
@@ -421,6 +428,27 @@ def create_app(config_path: str | None = None) -> FastAPI:
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409,"Key name exists")
         return {"key":token,"message":"Copy this key now: it will not be shown again"}
+
+    @app.delete("/admin/api/keys/{key_id}")
+    async def delete_key(key_id:int,request:Request):
+        admin_guard(request,True)
+        with store.db() as db:
+            result=db.execute("DELETE FROM api_keys WHERE id=?",(key_id,))
+            if not result.rowcount:
+                raise HTTPException(404,"Unknown key")
+        return {"ok":True}
+
+    @app.post("/admin/api/keys/{key_id}/rotate")
+    async def rotate_key(key_id:int,request:Request):
+        admin_guard(request,True)
+        # Revoke the old secret immediately, retaining key permissions and usage history.
+        from management import hash_key
+        token="ocg_" + secrets.token_urlsafe(32)
+        with store.db() as db:
+            result=db.execute("UPDATE api_keys SET hash=? WHERE id=?",(hash_key(token),key_id))
+            if not result.rowcount:
+                raise HTTPException(404,"Unknown key")
+        return {"key":token,"message":"Old key revoked. Copy the new key now."}
 
     @app.patch("/admin/api/keys/{key_id}")
     async def change_key(key_id:int,request:Request):

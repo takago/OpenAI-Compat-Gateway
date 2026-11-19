@@ -41,3 +41,10 @@ To update, `git pull` in your local clone and rerun `sudo ./install.sh`. Persist
 Features include unified `/v1/models`, per-key ACL and expiration, SSE streaming, passthrough JSON `extra_body`, multipart upload forwarding, and persistent asynchronous video job mapping. Newly discovered models remain unpublished until an administrator enables them.
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
+
+## Administration improvements (v0.3.1)
+
+- Select backend capabilities using checkboxes. Saving a backend immediately tries OpenAI-compatible `/v1/models` discovery and reports successes or detailed errors.
+- Refresh every backend explicitly; publish discovered models using checkboxes and batch save. Discovered models remain private by default.
+- Copy an API key at issue or rotation time. Previously issued secrets cannot be displayed again because only their hashes are stored. Rotation revokes the old secret; keys can be deleted or their permissions and expiration modified.
+- Existing SQLite data is preserved. Back up the database before installing an update with `sudo ./install.sh`.
