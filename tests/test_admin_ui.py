@@ -73,3 +73,13 @@ def test_nonstandard_endpoint_tags_have_lime_background():
     page = HTML.read_text(encoding="utf-8")
     assert ".item-tag.endpoint-custom{background:#d8ed9c" in page
     assert "if(!STANDARD_ENDPOINTS.has(ep))t.classList.add('endpoint-custom')" in page
+
+
+def test_key_type_labels_and_openai_model_choices():
+    page = HTML.read_text(encoding="utf-8")
+    assert '<option value="openai">標準キー</option>' in page
+    assert '<option value="dedicated">特定バックエンド専用キー</option>' in page
+    assert 'すべてのOpenAI互換モデル' in page
+    assert "k.backend_id?'特定バックエンド専用キー':'標準キー'" in page
+    assert "m.published&&state.backends.some(b=>b.id===m.backend_id&&(b.kind||'openai')==='openai')" in page
+    assert 'すべての公開モデル' not in page
