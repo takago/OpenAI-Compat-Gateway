@@ -34,7 +34,9 @@ async def test_kind_switch_keeps_models_and_dedicated_key_rules(tmp_path,monkeyp
             r=await c.post('/admin/api/backends',headers=hdr,json=body('irodori'))
             assert r.status_code==200 and 'key' not in r.json()
             dedicated=(await c.post('/admin/api/keys',headers=hdr,json={'name':'dedicated','backend_id':'tts'})).json()['key']
-            assert (await c.post('/v1/audio/speech',headers={'Authorization':'Bearer '+regular},json=speech)).status_code!=200
+            assert (await c.post('/v1/audio/speech',headers={'Authorization':'Bearer '+regular},json=speech)).status_code==200
+            assert (await c.get('/v1/audio/voices',headers={'Authorization':'Bearer '+regular})).status_code==404
+            assert any(m['id']=='test-public' for m in (await c.get('/v1/models',headers={'Authorization':'Bearer '+regular})).json()['data'])
             assert (await c.get('/v1/audio/voices',headers={'Authorization':'Bearer '+dedicated})).status_code==200
             state=(await c.get('/admin/api/state')).json()
             assert any(m['public_id']=='test-public' for m in state['models'])
@@ -42,6 +44,7 @@ async def test_kind_switch_keeps_models_and_dedicated_key_rules(tmp_path,monkeyp
             r=await c.post('/admin/api/backends',headers=hdr,json=body('kokoro'))
             assert r.status_code==200 and 'key' not in r.json()
             assert (await c.get('/v1/audio/voices',headers={'Authorization':'Bearer '+dedicated})).status_code==200
+            assert (await c.post('/v1/audio/speech',headers={'Authorization':'Bearer '+regular},json=speech)).status_code==200
             r=await c.post('/admin/api/backends',headers=hdr,json=body('openai'))
             assert r.status_code==200 and 'key' not in r.json()
             assert (await c.get('/v1/audio/voices',headers={'Authorization':'Bearer '+dedicated})).status_code==401

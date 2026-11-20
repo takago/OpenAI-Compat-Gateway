@@ -164,7 +164,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def public_models(key):
         result=[]
         for m in store.models():
-            if m["published"] and m["seen"] and m["backend_enabled"] and m.get("backend_kind", "openai") == "openai":
+            if m["published"] and m["seen"] and m["backend_enabled"]:
                 caps=json.loads(m["endpoints"])
                 if any(store.allowed(key,cap,m["public_id"]) for cap in caps):
                     result.append({"id":m["public_id"],"object":"model","created":0,"owned_by":m["backend_id"]})
@@ -219,7 +219,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if dedicated is None:
             cap, video_id = route_for(method,path)
         else:
-            cap, video_id = "dedicated_" + dedicated["kind"], None
+            cap, video_id = method + " /v1/" + path, None
         body=await request.body()
         if len(body)>max_upload:
             raise HTTPException(413,"Request too large")
@@ -251,7 +251,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             await refresh_all()
             candidates=[]
             for m in store.models():
-                if m["published"] and m["seen"] and m["backend_enabled"] and m.get("backend_kind", "openai") == "openai" and ROUTES[cap] in json.loads(m["endpoints"]):
+                if m["published"] and m["seen"] and m["backend_enabled"] and ROUTES[cap] in json.loads(m["endpoints"]):
                     if model is None or m["public_id"]==model:
                         candidates.append(m)
             if model is not None:
@@ -281,10 +281,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
             req=app.state.client.build_request(method,url,content=body if body else None,headers=headers)
             upstream=await app.state.client.send(req,stream=True)
         except httpx.HTTPError as exc:
-            store.log(key["id"],cap,model,502,int((time.monotonic()-start)*1000)) if key is not None else None
+            store.log(key["id"] if key is not None else dedicated["dedicated_key_id"],cap,model,502,int((time.monotonic()-start)*1000))
             LOG.warning("Upstream %s failed: %s",backend["id"],exc)
             raise HTTPException(502,"Upstream unavailable") from exc
-        store.log(key["id"],cap,model,upstream.status_code,int((time.monotonic()-start)*1000)) if key is not None else None
+        store.log(key["id"] if key is not None else dedicated["dedicated_key_id"],cap,model,upstream.status_code,int((time.monotonic()-start)*1000))
         resp_headers={k:v for k,v in upstream.headers.items() if k.lower() in RETURN_HEADERS}
         if cap=="videos" and upstream.is_success and ((method=="POST" and (video_id is None or path.endswith("/remix"))) or (method=="GET" and video_id is not None and not path.endswith("/content"))):
             try:

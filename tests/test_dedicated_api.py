@@ -53,6 +53,15 @@ async def test_dedicated_irodori_and_kokoro_same_paths(tmp_path, monkeypatch):
                    files={'file':('sample.wav',b'RIFF data','audio/wav')})
                 assert v.status_code==201 and received[-1].url.query==b'test=1'
                 assert b'RIFF data' in received[-1].content
+            # Dedicated requests are attributed to their own keys in usage metrics.
+            state=(await client.get('/admin/api/state')).json()
+            ids={k['backend_id']:k['id'] for k in state['keys'] if k['backend_id'] in keys}
+            for bid, key_id in ids.items():
+                usage=[x for x in state['metrics'] if x['key_id']==key_id]
+                assert sum(x['requests'] for x in usage)==3, (bid,usage)
+                assert any(x['capability']=='GET /v1/audio/voices' for x in usage)
+                assert any(x['capability']=='POST /v1/audio/speech' for x in usage)
+                assert any(x['capability']=='POST /v1/audio/voices' for x in usage)
             regular=(await client.post('/admin/api/backends',headers=admin,json={
                 'id':'normal','url':'http://normal.example/v1','kind':'openai','discover':True})).json()
             assert 'key' not in regular

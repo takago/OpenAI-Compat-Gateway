@@ -1,6 +1,6 @@
 # OpenAI-Compat-Gateway
 
-A self-hosted gateway for **OpenAI-compatible APIs** and dedicated **Irodori-TTS-Server / Kokoro-FastAPI** backends. One gateway URL, with two simple routing rules: standard API keys select an OpenAI-compatible model; a backend-specific key selects exactly one backend.
+A self-hosted gateway for **OpenAI-compatible APIs** and dedicated **Irodori-TTS-Server / Kokoro-FastAPI** backends. One gateway URL, with two simple routing rules: standard API keys select a published model via an OpenAI-standard endpoint; a backend-specific key selects exactly one backend.
 
 [日本語版 README](README.ja.md)
 
@@ -11,13 +11,13 @@ Developed by TAKAGO LAB, Kanazawa Institute of Technology. Not affiliated with O
 - **OpenAI-compatible:** existing model aliases, endpoint permissions, model discovery, standard API keys, and chat / images / audio / video forwarding remain supported.
 - **Irodori-TTS / Kokoro-TTS:** create a backend-specific key from the **API Keys** tab for the selected backend. The key selects the backend; the gateway forwards the original `/v1/...` method, path, query, JSON or multipart body, and streaming response without rewriting `model` or `voice`.
 - The admin UI manages backend registration and standard API keys. Configuration and key hashes live in SQLite.
-- A backend-specific key never authorizes another backend. A standard key never authorizes a dedicated backend.
+- A backend-specific key never authorizes another backend. A standard key can call published models on any backend through their configured OpenAI-standard endpoints; backend-specific keys additionally support upstream-specific APIs.
 
 | Backend type in the UI | Key management | Routing |
 |---|---|---|
 | OpenAI-compatible | Regular API key (model / endpoint permissions) | Request `model` |
-| Irodori-TTS | Dedicated key issued from API Keys tab | API key |
-| Kokoro-TTS | Dedicated key issued from API Keys tab | API key |
+| Irodori-TTS | Standard key for OpenAI-standard endpoints; dedicated key for native APIs | `model` / dedicated API key |
+| Kokoro-TTS | Standard key for OpenAI-standard endpoints; dedicated key for native APIs | `model` / dedicated API key |
 
 ## Install and open the dashboard
 
@@ -55,12 +55,14 @@ If the upstream requires authentication, configure its key in the backend settin
 
 Open the **API Keys** tab and click **Issue** (Add):
 
-- **OpenAI-compatible:** choose the allowed endpoints and models, as before.
+- **Standard key:** choose allowed OpenAI-standard endpoints and published models, regardless of backend type.
 - **Dedicated API:** select exactly one registered Irodori-TTS or Kokoro-TTS backend. The key form also displays the model names registered for that backend. Multiple backends can each have their own client key.
 
 Key expiration, enabled status, rotation, and deletion are all managed under **API Keys**. Only the key hash is stored, so **copy the full secret when issued or rotated**; it cannot be displayed again later.
 
-The **Standard key** model selector lists OpenAI-compatible backend models only; **All OpenAI-compatible models** grants access to those models, not dedicated backends.
+The **Standard key** model selector lists published models from all enabled backend types. **All published models** includes Irodori-TTS and Kokoro-TTS models when they expose OpenAI-standard endpoints such as `POST /v1/audio/speech`. Nonstandard voice-list and management APIs require a backend-specific key.
+
+The **Usage** tab shows request counts and average response-start latency for both standard and dedicated keys. Usage tracking for dedicated keys starts after this version is installed; earlier unrecorded requests cannot be reconstructed.
 
 Backend registration or type changes do not automatically issue keys. Switching between Irodori-TTS and Kokoro-TTS retains any existing backend-specific keys. Switching to OpenAI-compatible revokes and deletes the keys attached to that backend. Previously registered OpenAI model records are preserved for later use.
 
@@ -77,7 +79,7 @@ curl https://ai.example.com/v1/chat/completions \
   -d '{"model":"my-chat-model","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-OpenAI-compatible speech generation continues to use the `model` field and a **regular** key. Voice-listing / voice-management endpoints are *not* part of the standard OpenAI-compatible profile.
+OpenAI-standard speech generation (`POST /v1/audio/speech`) works with a **standard key** and any published model configured for that endpoint, including Irodori-TTS and Kokoro-TTS. Voice-listing / voice-management APIs require a **backend-specific key**.
 
 ### Irodori-TTS (backend-specific key)
 

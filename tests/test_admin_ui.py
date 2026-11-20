@@ -41,7 +41,7 @@ def test_ui_uses_list_and_edit_separation():
     assert "function editKey(k,card)" in page
     assert "公開モデルID" in page
     assert "E('model-search').oninput=render" in page
-    assert "appendEditorRow(backendBody,tr,5" in page
+    assert "appendEditorRow(backendBody,tr,6" in page
     assert "appendEditorRow(modelBody,tr,5" in page
     assert "appendEditorRow(keyBody,tr,5" in page
     assert "className='compact-table'" in page
@@ -79,10 +79,10 @@ def test_key_type_labels_and_openai_model_choices():
     page = HTML.read_text(encoding="utf-8")
     assert '<option value="openai">標準キー</option>' in page
     assert '<option value="dedicated">特定バックエンド専用キー</option>' in page
-    assert 'すべてのOpenAI互換モデル' in page
+    assert 'すべての公開モデル' in page
     assert "k.backend_id?'特定バックエンド専用キー':'標準キー'" in page
-    assert "m.published&&state.backends.some(b=>b.id===m.backend_id&&(b.kind||'openai')==='openai')" in page
-    assert 'すべての公開モデル' not in page
+    assert "m.published&&state.backends.some(b=>b.id===m.backend_id&&b.enabled)" in page
+    assert 'すべてのOpenAI互換モデル' not in page
 
 
 def test_dedicated_key_form_shows_readonly_endpoints():
@@ -94,3 +94,10 @@ def test_dedicated_key_form_shows_readonly_endpoints():
     assert "...dedicatedEndpoints(backend.kind)" in page
     assert "E('key-backend-endpoints-wrap').classList.toggle('hidden',!dedicated)" in page
     assert '対応エンドポイント</div><div id="key-backend-endpoints"' in page
+
+
+def test_standard_key_and_usage_labels():
+    from pathlib import Path
+    page=(Path(__file__).resolve().parent.parent/'admin.html').read_text()
+    assert "'すべての公開モデル':arr(k.models)" in page
+    assert "k.name+' (ID: '+x.key_id+')'" in page

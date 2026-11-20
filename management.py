@@ -173,7 +173,7 @@ class Store:
     def dedicated_backend_for(self, secret: str):
         digest = hash_key(secret)
         with self.db() as db:
-            row = db.execute("""SELECT b.* FROM api_keys k JOIN backends b ON b.id=k.backend_id
+            row = db.execute("""SELECT b.*, k.id AS dedicated_key_id FROM api_keys k JOIN backends b ON b.id=k.backend_id
                  WHERE k.hash=? AND k.enabled=1 AND (k.expires_at IS NULL OR k.expires_at>?)
                  AND b.enabled=1 AND b.kind IN ('irodori','kokoro')""", (digest,int(time.time()))).fetchone()
             return dict(row) if row else None
