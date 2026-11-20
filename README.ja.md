@@ -1,23 +1,35 @@
 # OpenAI-Compat-Gateway
 
-OpenAI互換APIと，Irodori-TTS-Server・Kokoro-FastAPIを1つの入口から利用するセルフホスト型ゲートウェイです．**OpenAI標準エンドポイントはモデル名，Irodori-TTSとKokoro-TTSの独自APIは拡張キー**によって転送先を決定します．
+OpenAI互換APIと，Irodori-TTS-Server・Kokoro-FastAPIを1つのURLで利用するセルフホスト型ゲートウェイです．バックエンドの登録，モデルの公開，APIキーの発行をWeb管理画面から行えます．
 
 [English README](README.md)
 
-金沢工業大学 TAKAGO LAB による開発プロジェクトです．OpenAI公式の製品ではありません．
+金沢工業大学 TAKAGO LABによる開発プロジェクトです．OpenAI公式の製品ではありません．
 
-## 主な機能
+## APIキーとエンドポイント
 
-- **モデル管理**：すべてのバックエンドでモデル一覧と対応エンドポイントを表示・編集できます．独自APIの黄緑色の表示は種別による候補であり，接続先が実際に対応していることを保証するものではありません．OpenAI互換APIの転送先は公開モデル名で決まります．
-- **Irodori-TTS／Kokoro-TTS**：「APIキー」タブで対象バックエンドを選択して拡張キーを発行し，`/v1/...` 以下のHTTPメソッド・パス・クエリ・本文・レスポンスを原則そのまま中継します．`model` や `voice` は書き換えません．
-- 設定はSQLiteに保存し，管理画面から編集できます．発行したAPIキーはハッシュで保存します．
-- 標準キーは公開モデルに設定されたOpenAI標準エンドポイントを利用できます．Irodori-TTS・Kokoro-TTSの音声生成も対象です．Voice一覧・管理などの独自APIには拡張キーを使います．
+APIキーには**標準キー**と**拡張キー**の2種類があります．
 
-| バックエンド種別 | キー | 転送先の決定 |
+| | 標準キー | 拡張キー |
 |---|---|---|
-| OpenAI互換 | 標準キー | リクエスト内の `model` |
-| Irodori-TTS | 標準APIは標準キー，独自APIは専用キー | `model`／専用APIキー |
-| Kokoro-TTS | 標準APIは標準キー，独自APIは専用キー | `model`／専用APIキー |
+| 転送先 | リクエストの公開モデルIDで決定 | キーに指定した1つのバックエンド |
+| OpenAI標準エンドポイント | 利用可能なモデル・機能の範囲で利用 | 指定バックエンドが対応すれば利用可能 |
+| **拡張エンドポイント** | **利用不可** | **利用可能**（上流サーバが対応する場合） |
+| 設定する場所 | APIキー → 追加 → 標準キー | APIキー → 追加 → 拡張キー |
+
+**拡張キーを使うと，OpenAI標準APIに加え，指定したバックエンドが提供する拡張エンドポイントにもアクセスできます．** 例えばIrodori-TTSやKokoro-TTSの `GET /v1/audio/voices` は拡張エンドポイントです．拡張キーを使えば，そのキーで指定したサーバからVoice一覧を取得できます．
+
+```text
+同じゲートウェイURL（/v1/...）
+ ├─ 標準キー → 公開モデルIDで転送先を選択 → OpenAI標準API
+ │                         例: POST /v1/audio/speech
+ └─ 拡張キー → キーに登録されたバックエンドへ転送
+                            例: GET /v1/audio/voices
+                            例: POST /v1/audio/voices（Irodori）
+                            例: POST /v1/audio/voices/combine（対応するKokoro）
+```
+
+拡張キーの対象は**1つのバックエンド**です．Irodori-TTSを2台登録した場合も，それぞれに別の拡張キーを発行できます．拡張エンドポイントの有無や動作は，上流サーバの実装によって異なります．
 
 ## インストール
 
@@ -29,9 +41,7 @@ cd OpenAI-Compat-Gateway
 sudo ./install.sh
 ```
 
-`http://127.0.0.1:8765/admin` を開き，12文字以上の管理者パスワードを設定してログインします．外部公開する前に初期設定を完了させてください．外部アクセスにはHTTPSを推奨します．
-
-Caddyの設定例：
+`http://127.0.0.1:8765/admin` にアクセスし，管理者パスワード（12文字以上）を設定します．外部公開時はHTTPSを使用してください．例えばCaddyでは次のように設定できます．
 
 ```caddyfile
 ai.example.com {
@@ -39,103 +49,87 @@ ai.example.com {
 }
 ```
 
-APIの接続先は `https://ai.example.com/v1`，管理画面は `/admin` です．
+この場合，クライアントのAPIベースURLは `https://ai.example.com/v1` です．
 
-## バックエンドの登録
+## 初期設定
 
-管理画面の「バックエンド」→「追加」で，バックエンドID，`/v1` で終わる上流URL，種別を指定します．
+1. **バックエンド → 追加**：バックエンドID，接続先URL（末尾 `/v1`），種別（**OpenAI互換／Irodori-TTS／Kokoro-TTS**）を登録します．
+2. **モデル**：必要なモデルを自動取得または手動登録し，公開モデルIDと対応エンドポイントを設定します．Irodori・Kokoroもモデル一覧に表示できます．
+3. **APIキー → 追加**：標準キーなら利用を許可する機能とモデルを，拡張キーなら対象バックエンドを1つ指定します．
+4. **APIキーをコピー**：発行時に表示されるキーをクライアントへ設定します．キーはハッシュ保存のため，全文を後から表示できません．
 
-- **OpenAI互換**：従来どおり「モデル」で公開設定・対応エンドポイントを管理し，「APIキー」で利用権限を設定します．
-- **Irodori-TTS**：Irodori-TTS-ServerのURL（例：`http://192.168.1.20:8088/v1`）を登録します．
-- **Kokoro-TTS**：Kokoro-FastAPIのURL（例：`http://192.168.1.21:8880/v1`）を登録します．
+管理画面の「対応エンドポイント」に黄緑色で表示される拡張エンドポイントは，バックエンド種別から推定した候補です．実サーバで利用できるかはそのサーバの仕様で確認してください．
 
-Irodori-TTSやKokoro-TTSも「モデル」タブでモデルの手動追加・公開設定・対応エンドポイントを編集できます．`/v1/models` を提供するサーバでは自動取得も可能です．これらのモデル設定は拡張キーによる転送先の決定には使用しません．
+上流サーバが別途認証を要求する場合は，バックエンド設定にその認証情報を登録します．ゲートウェイがクライアントへ発行するAPIキーとは別のものです．
 
-上流サーバ自身が認証を要求する場合は，バックエンドのAPIキー欄にその認証情報を入力します．これはクライアント向けのゲートウェイAPIキーとは異なります．登録済みの上流APIキーを削除する場合は，バックエンドの編集画面で「登録済みのバックエンドAPIキーを削除」にチェックを付けて保存してください．接続先URLを変更するときは，旧キーの別サーバへの送信を防ぐため，キーの再入力または削除を明示的に行ってください．
+### APIキーの管理
 
-## APIキーの発行・管理
+「APIキー」タブでは，キー名，有効期限，有効・無効，権限，キーの再発行・削除を管理できます．「キー名」は管理用の名前，「キーID」は内部識別番号，「APIキー」は認証に使う秘密文字列です．
 
-「APIキー」タブで「追加」（発行）を押し，キー名とキー種別を指定します．キー名は管理用の一意な名前で，システムが割り当てる数値のキーIDや発行されるAPIキー文字列とは異なります．
+「利用状況」タブでは，標準キーと拡張キーのリクエスト件数や応答開始時間を確認できます．
 
-- **標準キー**：公開モデルとOpenAI標準エンドポイントを選択して発行します．「すべての公開モデル」を選択すると，Irodori-TTS・Kokoro-TTSを含む公開モデルが対象になります（各モデルで設定した対応エンドポイントに限ります）．
-- **拡張キー**：登録済みのIrodori-TTSまたはKokoro-TTSバックエンドを1つ選択して発行します．追加画面には選択したバックエンドの登録モデル名も表示されます．バックエンドを2台登録した場合も，それぞれのキーを個別に発行できます．
+## APIの利用例
 
-APIキーの有効期限と有効・無効状態は「APIキー」タブで編集でき，キーの再発行・削除も同じ画面で操作できます．**キー全文は発行・再発行時のみ表示**されます．ハッシュ保存のため，後から全文を復元することはできません．
+以下のURL・キーは設定例です．`$STANDARD_KEY`，`$IRODORI_KEY`，`$KOKORO_KEY` には発行したキーを設定してください．
 
-「利用状況」タブでは，標準キーと拡張キーのリクエスト件数・平均応答開始時間をAPIキーごとに確認できます．専用キーの利用統計は本バージョンへの更新後から記録されます．
+### 標準キー：OpenAI標準の音声生成
 
-バックエンドの登録や種別変更だけではAPIキーを発行しません．Irodori-TTSとKokoro-TTSの相互変更では既存の拡張キーを維持します．OpenAI互換に変更すると，紐付く拡張キーは失効・削除されます．モデル登録情報は保持されるため，OpenAI互換へ戻した際に再利用できます．
-
-## APIの使い方
-
-### OpenAI互換（標準キー）
-
-公開モデル名を指定して利用します．従来のチャット・画像生成などの操作は変わりません．
+公開モデルIDを `irodori-tts` とした例です．標準キーでは，バックエンド種別に関係なく，公開されている対応モデルを使用できます．
 
 ```bash
-curl https://ai.example.com/v1/chat/completions \
-  -H "Authorization: Bearer $REGULAR_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"my-chat-model","messages":[{"role":"user","content":"こんにちは"}]}'
-```
-
-OpenAI標準の音声生成では，バックエンド種別にかかわらず公開モデルの `model` を指定します．Irodori-TTSやKokoro-TTSの公開モデルも，`POST /v1/audio/speech` に対応していれば標準キーで使用できます．Voice一覧・管理などの独自APIは専用キーで利用します．
-
-### Irodori-TTS（拡張キー）
-
-```bash
-curl https://ai.example.com/v1/audio/voices \
-  -H "Authorization: Bearer $IRODORI_KEY"
-
 curl https://ai.example.com/v1/audio/speech \
-  -H "Authorization: Bearer $IRODORI_KEY" \
+  -H "Authorization: Bearer $STANDARD_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"model":"irodori-tts","input":"こんにちは","voice":"hadou","response_format":"wav"}' \
   --output speech.wav
 ```
 
-Voiceの追加・取得・更新・削除も，Irodori-TTS-Serverと同じAPI形式で利用できます．
+チャットや画像生成なども，それぞれ公開モデルIDを指定して従来どおり利用できます．
 
-### Kokoro-TTS（拡張キー）
+### 拡張キー：Irodori-TTSのVoice一覧・管理
+
+Irodori-TTSバックエンドを選んで発行した拡張キーで，そのサーバの拡張エンドポイントにアクセスします．
+
+```bash
+curl https://ai.example.com/v1/audio/voices \
+  -H "Authorization: Bearer $IRODORI_KEY"
+```
+
+Voiceのアップロード・取得・更新・削除も，Irodori-TTS-Serverが提供するAPI形式で利用できます．同じ拡張キーで `POST /v1/audio/speech` にもアクセスできます．
+
+### 拡張キー：Kokoro-TTSのVoice一覧
+
+Kokoro-TTSバックエンドを選んで発行した拡張キーを使用します．
 
 ```bash
 curl https://ai.example.com/v1/audio/voices \
   -H "Authorization: Bearer $KOKORO_KEY"
-
-curl https://ai.example.com/v1/audio/speech \
-  -H "Authorization: Bearer $KOKORO_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"kokoro","input":"Hello","voice":"af_bella","response_format":"mp3"}' \
-  --output speech.mp3
 ```
 
-利用するKokoro-FastAPIが対応していれば，`/v1/audio/voices/combine` なども同様に転送されます．実際に使用できるAPIやオプションは上流サーバのバージョンに依存します．
-
-**Irodoriを2台登録した場合，それぞれに拡張キーを発行できます．** 音声生成とVoice一覧・管理は，どちらもキーに対応する1台へ転送します．`voice` は通常のリクエスト項目として，そのまま上流へ送ります．
+接続先のKokoro-FastAPIが対応していれば，`POST /v1/audio/voices/combine` などの拡張エンドポイントも利用できます．Kokoro固有のオプションは上流の実装に従います．
 
 ## 更新と運用
 
-既存データベースは起動時に自動移行され，従来のAPIキーはそのまま利用できます．既存バックエンドの種別はすべて「OpenAI互換」になります．設定データベースは `/var/lib/openai-compat-gateway/gateway.sqlite3` です．更新前にバックアップを保存してください．
+更新前にSQLiteデータベース `/var/lib/openai-compat-gateway/gateway.sqlite3` をバックアップし，次のコマンドで更新してください．既存のAPIキーと設定は自動移行の対象です．
 
 ```bash
+git pull
+sudo ./install.sh
 sudo systemctl status openai-compat-gateway
 sudo journalctl -u openai-compat-gateway -f
-sudo systemctl restart openai-compat-gateway
 ```
 
-`git pull` 後に `sudo ./install.sh` を再実行すると更新できます．管理画面にはSQLiteバックアップ・復元機能があります．バックアップには上流認証情報とAPIキーのハッシュが含まれるため，厳重に保管してください．上流認証情報はアクセス権を制限したSQLiteに保存されますが，保存時の暗号化は行いません．
+### セキュリティ上の注意
 
-### セキュリティと制約
-
-- 拡張キーは，そのキーに結び付いた有効なバックエンドの `/v1/` 以下だけを転送します．WebSocketや `/v1/` 以外のパスには対応しません．
-- 拡張キーでは `GET`・`POST`・`PUT`・`DELETE` を中継するため，Voice削除などの操作も可能です．上流の `/v1/` 全体にアクセスできる鍵として取り扱ってください．
-- リクエスト本文は最大256 MiB（既定値）まで受信中にサイズを検査し，上限以内の本文をバッファに読み込みます．レスポンスはストリーミング転送します．危険なパス表現やmultipartの `model` 二重指定は拒否します．リダイレクト・部分取得に必要なHTTPヘッダーも可能な範囲で中継しますが，すべてのHTTP機能を完全再現するものではありません．
-- 管理画面を外部公開する場合は，HTTPSに加え，リバースプロキシ側でアクセス元・ログイン試行回数を制限してください．
-- 自動テストはモックサーバを使用しています．Irodori／Kokoroの実サーバとの結合試験は別途必要です．
+- **拡張キーは指定バックエンドの `/v1/` 以下に広くアクセスできます．** Voiceの削除など，変更操作も許可されるため，信頼できるクライアントにのみ渡してください．
+- 拡張キーによる転送対象は `/v1/` 以下のHTTP APIです．WebSocketには対応しません．
+- リクエスト本文は既定で最大256 MiBです．転送前にサイズを確認し，レスポンスはストリーミング処理します．
+- 管理画面の外部公開時はHTTPSとアクセス制限を利用してください．上流の認証情報はSQLiteへ保存されますが，保存時の暗号化は行いません．
+- 自動テストはモック環境で実行されています．Irodori・Kokoroの実サーバとの動作確認は別途必要です．
 
 ## 謝辞
 
-**[Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server)** の開発者 **Aratakoさん**，および **[Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)** の開発者 **remskyさんとコントリビューターの皆様** に感謝します．両プロジェクトは独立して開発・公開されたオープンソースソフトウェアです．
+[Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server) の開発者 **Aratakoさん**，および [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) の開発者 **remskyさんとコントリビューターの皆様** に感謝します．
 
 ## ライセンス
 
