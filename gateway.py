@@ -14,9 +14,11 @@ os.environ["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
 import re
 import secrets
 import time
+from email.message import Message
+from python_multipart import MultipartParser
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote_to_bytes, urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -28,7 +30,7 @@ from endpoints import ROUTES, ENDPOINTS, normalize
 LOG = logging.getLogger("compat_gateway")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length"}
-RETURN_HEADERS = {"content-type", "content-disposition", "cache-control", "etag", "last-modified", "openai-processing-ms", "openai-version", "openai-poll-after-ms", "retry-after", "x-request-id"}
+RETURN_HEADERS = {"content-type", "content-disposition", "content-encoding", "content-language", "content-location", "cache-control", "etag", "last-modified", "expires", "vary", "pragma", "age", "accept-ranges", "content-range", "location", "allow", "openai-processing-ms", "openai-version", "openai-poll-after-ms", "retry-after", "x-request-id"}
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
@@ -42,49 +44,202 @@ def route_for(method: str, path: str):
     raise HTTPException(404, "Unsupported API endpoint")
 
 
+def _media_type(content_type: str) -> str:
+    """HTTP media types are case insensitive; parameters are not relevant here."""
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _multipart_model(content_type: str, body: bytes) -> tuple[str, int, int] | None:
+    """Locate one well-formed model field without altering uploaded files.
+
+    python-multipart validates MIME boundaries.  All offsets refer to the
+    original request bytes, so replacing the field preserves every other byte.
+    """
+    match = re.search(r'(?:^|;)\s*boundary\s*=\s*(?:"([^"\r\n]+)"|([^;\s]+))', content_type, re.I)
+    if not match:
+        raise HTTPException(400, "Multipart boundary missing")
+    boundary = (match.group(1) or match.group(2)).encode("latin1")
+    if not boundary or len(boundary) > 70:
+        raise HTTPException(400, "Invalid multipart boundary")
+
+    found: list[tuple[str, int, int]] = []
+    field = bytearray()
+    value = bytearray()
+    headers: dict[str, str] = {}
+    is_model = False
+    offsets: list[tuple[int, int]] = []
+    header_bytes = 0
+    complete = False
+
+    def on_header_field(data, start, end):
+        nonlocal header_bytes
+        header_bytes += end - start
+        if header_bytes > 16384:
+            raise HTTPException(400, "Multipart headers too large")
+        field.extend(data[start:end])
+
+    def on_header_value(data, start, end):
+        nonlocal header_bytes
+        header_bytes += end - start
+        if header_bytes > 16384:
+            raise HTTPException(400, "Multipart headers too large")
+        value.extend(data[start:end])
+
+    def on_header_end():
+        name = field.decode('latin1').strip().lower()
+        if name in headers:
+            raise HTTPException(400, "Duplicate multipart header")
+        headers[name] = value.decode('latin1').strip()
+        field.clear()
+        value.clear()
+
+    def on_headers_finished():
+        nonlocal is_model
+        disposition = Message()
+        disposition['Content-Disposition'] = headers.get('content-disposition', '')
+        is_model = disposition.get_content_disposition() == 'form-data' and disposition.get_param('name', header='content-disposition') == 'model'
+        if is_model and 'filename' in headers.get('content-disposition', '').lower():
+            raise HTTPException(400, "Model must be a text field")
+        if is_model and found:
+            raise HTTPException(400, "Duplicate multipart model field")
+
+    def on_part_data(data, start, end):
+        if is_model:
+            offsets.append((start, end))
+            if sum(b-a for a,b in offsets) > 4096:
+                raise HTTPException(400, "Model field too large")
+
+    def on_part_end():
+        nonlocal is_model, header_bytes
+        if is_model:
+            if not offsets:
+                raise HTTPException(400, "Empty multipart model field")
+            beginning, ending = offsets[0][0], offsets[-1][1]
+            if any(a != previous[1] for previous, (a, b) in zip(offsets, offsets[1:])):
+                raise HTTPException(400, "Invalid multipart model field")
+            try:
+                text = body[beginning:ending].decode('utf-8')
+            except UnicodeError:
+                raise HTTPException(400, "Invalid model encoding")
+            if not text:
+                raise HTTPException(400, "Empty multipart model field")
+            found.append((text, beginning, ending))
+        is_model = False
+        offsets.clear()
+        headers.clear()
+        field.clear()
+        value.clear()
+        header_bytes = 0
+
+    def on_end():
+        nonlocal complete
+        complete = True
+
+    callbacks = {"on_header_field": on_header_field, "on_header_value": on_header_value,
+                 "on_header_end": on_header_end, "on_headers_finished": on_headers_finished,
+                 "on_part_data": on_part_data, "on_part_end": on_part_end,
+                 "on_end": on_end}
+    try:
+        parser = MultipartParser(boundary, callbacks)
+        parser.write(body)
+        parser.finalize()
+    except HTTPException:
+        raise
+    except (ValueError, UnicodeError, IndexError) as exc:
+        raise HTTPException(400, "Invalid multipart request") from exc
+    if not complete:
+        raise HTTPException(400, "Incomplete multipart request")
+    if len(found) > 1:
+        raise HTTPException(400, "Duplicate multipart model field")
+    return found[0] if found else None
+
+
+def _parse_json_request(body: bytes):
+    # Reject ambiguous model keys before authorizing access. JSON objects with
+    # duplicate keys may be interpreted differently by separate parsers.
+    def check_pairs(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key == "model" and key in obj:
+                raise ValueError("Duplicate JSON model field")
+            obj[key] = value
+        return obj
+
+    return json.loads(body, object_pairs_hook=check_pairs)
+
+
 def extract_model(content_type: str, body: bytes) -> str | None:
-    if content_type.lower().startswith("application/json"):
+    media = _media_type(content_type)
+    if media == "application/json":
         try:
-            value = json.loads(body)
+            value = _parse_json_request(body)
             return value.get("model") if isinstance(value, dict) and isinstance(value.get("model"), str) else None
         except (ValueError, UnicodeError):
             raise HTTPException(400, "Invalid JSON request")
-    if content_type.lower().startswith("multipart/form-data"):
-        m = re.search(r'boundary=(?:"([^"]+)"|([^;\s]+))', content_type, re.I)
-        if not m:
-            raise HTTPException(400, "Multipart boundary missing")
-        delimiter = b"--" + (m.group(1) or m.group(2)).encode()
-        for item in body.split(delimiter):
-            sep = item.find(b"\r\n\r\n")
-            if sep < 0:
-                continue
-            header = item[:sep].decode("latin1")
-            if re.search(r'\bname="model"(?:\s*;|\s*$)', header, re.I):
-                return item[sep+4:].split(b"\r\n",1)[0].decode("utf8", "replace")
+    if media == "multipart/form-data":
+        part = _multipart_model(content_type, body)
+        return part[0] if part else None
     return None
 
 
 def replace_model(content_type: str, body: bytes, public_id: str, upstream_id: str) -> bytes:
     if public_id == upstream_id:
         return body
-    if content_type.startswith("application/json"):
-        data = json.loads(body)
+    media = _media_type(content_type)
+    if media == "application/json":
+        try:
+            data = _parse_json_request(body)
+        except (ValueError, UnicodeError) as exc:
+            raise HTTPException(400, "Invalid JSON request") from exc
+        if not isinstance(data, dict) or data.get("model") != public_id:
+            raise HTTPException(400, "Model alias requires a matching model field")
         data["model"] = upstream_id
         return json.dumps(data, ensure_ascii=False).encode()
-    if content_type.startswith("multipart/form-data"):
-        m = re.search(r'boundary=(?:"([^"]+)"|([^;\s]+))', content_type, re.I)
-        if not m:
-            raise HTTPException(400, "Multipart boundary missing")
-        marker = b"--" + (m.group(1) or m.group(2)).encode()
-        chunks = body.split(marker)
-        for idx, chunk in enumerate(chunks):
-            sep = chunk.find(b"\r\n\r\n")
-            if sep >= 0 and re.search(r'\bname="model"(?:\s*;|\s*$)',chunk[:sep].decode("latin1"),re.I):
-                old = chunk[sep+4:].split(b"\r\n",1)[0]
-                if old.decode("utf8", "replace") == public_id:
-                    chunks[idx] = chunk[:sep+4] + upstream_id.encode() + chunk[sep+4+len(old):]
-                    return marker.join(chunks)
+    if media == "multipart/form-data":
+        part = _multipart_model(content_type, body)
+        if part and part[0] == public_id:
+            return body[:part[1]] + upstream_id.encode('utf-8') + body[part[2]:]
     raise HTTPException(400, "Model alias requires JSON or multipart model field")
+
+
+def validate_proxy_path(raw_path: bytes) -> None:
+    """Reject ambiguous paths before URL joining or upstream normalization.
+
+    In particular, decoded dot segments, backslashes, and encoded slashes
+    must not permit a dedicated key to escape the configured /v1 prefix.
+    """
+    if not raw_path.startswith(b'/v1/'):
+        raise HTTPException(400, "Invalid API path")
+    candidate = raw_path
+    for _ in range(5):
+        if b'\\' in candidate or any(segment in (b'.', b'..') for segment in candidate.split(b'/')):
+            raise HTTPException(400, "Unsafe API path")
+        if any(byte < 32 or byte == 127 for byte in candidate):
+            raise HTTPException(400, "Unsafe API path")
+        if re.search(rb'%(?![0-9A-Fa-f]{2})', candidate):
+            raise HTTPException(400, "Invalid percent encoding in API path")
+        if re.search(rb'%(?:2[fF]|5[cC])', candidate):
+            raise HTTPException(400, "Encoded path separators are not allowed")
+        decoded = unquote_to_bytes(candidate)
+        if decoded == candidate:
+            return
+        candidate = decoded
+    if b'%' in candidate:
+        raise HTTPException(400, "Excessively encoded API path")
+    if b'\\' in candidate or any(segment in (b'.', b'..') for segment in candidate.split(b'/')):
+        raise HTTPException(400, "Unsafe API path")
+
+
+async def read_limited_body(request: Request, max_bytes: int) -> bytes:
+    """Enforce the limit while receiving, even without Content-Length."""
+    chunks: list[bytes] = []
+    count = 0
+    async for chunk in request.stream():
+        count += len(chunk)
+        if count > max_bytes:
+            raise HTTPException(413, "Request too large")
+        chunks.append(chunk)
+    return b''.join(chunks)
 
 
 def session_create(secret: str):
@@ -173,6 +328,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         path=request.url.path
+        raw_path = request.scope.get("raw_path", path.encode('utf-8'))
+        if raw_path.startswith(b"/v1/") or path.startswith("/v1/"):
+            try:
+                validate_proxy_path(raw_path)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         if path == "/healthz" or path.startswith("/admin"):
             return await call_next(request)
         if not path.startswith("/v1/"):
@@ -220,9 +381,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             cap, video_id = route_for(method,path)
         else:
             cap, video_id = method + " /v1/" + path, None
-        body=await request.body()
-        if len(body)>max_upload:
-            raise HTTPException(413,"Request too large")
+        body=await read_limited_body(request, max_upload)
         content_type=request.headers.get("content-type","")
         model = None if dedicated is not None or video_id else extract_model(content_type, body)
         upstream_id=None
@@ -286,6 +445,17 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(502,"Upstream unavailable") from exc
         store.log(key["id"] if key is not None else dedicated["dedicated_key_id"],cap,model,upstream.status_code,int((time.monotonic()-start)*1000))
         resp_headers={k:v for k,v in upstream.headers.items() if k.lower() in RETURN_HEADERS}
+        # Redirects back to the same upstream API must keep the client on the gateway.
+        if 'location' in resp_headers:
+            target = urlsplit(resp_headers['location'])
+            backend_base = urlsplit(backend['url'])
+            if (target.scheme, target.netloc) == (backend_base.scheme, backend_base.netloc) and (
+                target.path == backend_base.path or target.path.startswith(backend_base.path.rstrip('/') + '/')):
+                public_base = urlsplit(str(request.base_url))
+                upstream_prefix = backend_base.path.rstrip('/')
+                suffix = target.path[len(upstream_prefix):]
+                resp_headers['location'] = urlunsplit((public_base.scheme, public_base.netloc,
+                    '/v1' + suffix, target.query, target.fragment))
         if cap=="videos" and upstream.is_success and ((method=="POST" and (video_id is None or path.endswith("/remix"))) or (method=="GET" and video_id is not None and not path.endswith("/content"))):
             try:
                 data=await upstream.aread()
@@ -306,7 +476,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 return Response(content=data,status_code=upstream.status_code,headers=resp_headers)
             finally:
                 await upstream.aclose()
-        return StreamingResponse(upstream.aiter_bytes(),status_code=upstream.status_code,headers=resp_headers,background=BackgroundTask(upstream.aclose))
+        # MockTransport and some custom transports return an already-buffered response.
+        # Real network streams use raw bytes to preserve Content-Encoding unchanged.
+        if upstream.is_stream_consumed:
+            resp_headers.pop("content-encoding", None)
+            response_body = upstream.aiter_bytes()
+        else:
+            response_body = upstream.aiter_raw()
+        return StreamingResponse(response_body,status_code=upstream.status_code,headers=resp_headers,background=BackgroundTask(upstream.aclose))
 
     def admin_guard(request: Request,mutate=False):
         if not admin_enabled:
@@ -392,19 +569,24 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if kind not in {"openai", "irodori", "kokoro"}:
             raise HTTPException(400, "Invalid backend kind")
         direct_key=data.get("api_key", "")
-        if not isinstance(direct_key,str) or len(direct_key)>4096:
+        clear_key = data.get("clear_api_key", False)
+        if not isinstance(direct_key,str) or len(direct_key)>4096 or not isinstance(clear_key,bool):
             raise HTTPException(400,"Invalid backend API key")
+        if clear_key and direct_key:
+            raise HTTPException(400, "Cannot replace and clear the backend key together")
         with store.db() as db:
-            current=db.execute("SELECT kind FROM backends WHERE id=?",(bid,)).fetchone()
+            current=db.execute("SELECT kind,url,api_key FROM backends WHERE id=?",(bid,)).fetchone()
             old_kind=current["kind"] if current is not None else None
+            if current and current['url'] != url and current['api_key'] and not clear_key and not direct_key:
+                raise HTTPException(409, "When changing the backend URL, replace or clear its saved API key")
             discover_enabled=int(bool(data.get("discover",True)))
             db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,kind,dedicated_key_hash)
                 VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET
                 url=excluded.url,capabilities=excluded.capabilities,
                 key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,
-                api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END,
+                api_key=CASE WHEN ? THEN NULL WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END,
                 kind=excluded.kind,dedicated_key_hash=NULL""",
-                (bid,url,json.dumps([]),None,int(bool(data.get("enabled",True))),discover_enabled,direct_key,kind))
+                (bid,url,json.dumps([]),None,int(bool(data.get("enabled",True))),discover_enabled,direct_key,kind,int(clear_key)))
             # Switching back to OpenAI revokes dedicated credentials. Switching
             # between dedicated types leaves their independently issued keys intact.
             if kind == "openai" and old_kind in {"irodori", "kokoro"}:

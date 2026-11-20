@@ -8,7 +8,7 @@ Developed by TAKAGO LAB, Kanazawa Institute of Technology. Not affiliated with O
 
 ## Features
 
-- **OpenAI-compatible:** existing model aliases, endpoint permissions, model discovery, standard API keys, and chat / images / audio / video forwarding remain supported.
+- **OpenAI-compatible:** existing model aliases, endpoint permissions, model discovery, standard API keys, and chat / images / audio / video forwarding remain supported. Lime-colored custom API badges are potential endpoints based on backend type, not confirmation that the live upstream implements them.
 - **Irodori-TTS / Kokoro-TTS:** create a backend-specific key from the **API Keys** tab for the selected backend. The key selects the backend; the gateway forwards the original `/v1/...` method, path, query, JSON or multipart body, and streaming response without rewriting `model` or `voice`.
 - The admin UI manages backend registration and standard API keys. Configuration and key hashes live in SQLite.
 - A backend-specific key never authorizes another backend. A standard key can call published models on any backend through their configured OpenAI-standard endpoints; backend-specific keys additionally support upstream-specific APIs.
@@ -49,7 +49,9 @@ In **Backends → Add**, enter a backend ID, its API URL ending in `/v1`, and se
 - **Irodori-TTS:** register the Irodori-TTS-Server `/v1` URL (for example `http://192.168.1.20:8088/v1`).
 - **Kokoro-TTS:** register the Kokoro-FastAPI `/v1` URL (for example `http://192.168.1.21:8880/v1`).
 
-If the upstream requires authentication, configure its key in the backend settings. This is separate from the key issued to gateway clients.
+Model lists and endpoints are visible for every backend type. For Irodori-TTS and Kokoro-TTS, model records are also used for standard-key model routing; dedicated-key requests use their selected backend directly. Auto-discovery requires upstream `/v1/models` support; manual entries are available for servers without it.
+
+If the upstream requires authentication, configure its key in the backend settings. This is separate from the key issued to gateway clients. To remove a saved upstream key, select **Remove saved backend API key** in the backend editor. When changing an upstream URL, explicitly replace or remove the existing key to prevent sending it to another host.
 
 ## API key issuance and management
 
@@ -129,7 +131,8 @@ The dashboard also offers SQLite backup / restore. Backups contain upstream cred
 
 - Only registered, enabled backends are reachable with their backend-specific keys, via paths under `/v1/`. The gateway does not proxy non-`/v1/` endpoints or WebSockets.
 - Dedicated forwarding deliberately passes through upstream `GET`, `POST`, `PUT`, and `DELETE` calls, including voice changes. Treat each backend-specific key as granting the corresponding upstream `/v1/` permissions. Restrict network access and use HTTPS.
-- This implementation uses buffered request bodies (256 MiB default limit) and streamed upstream responses. It does not transparently support every HTTP protocol feature.
+- Request bodies are checked incrementally against the 256 MiB default limit before being buffered. Dangerous path encodings and duplicate multipart `model` fields are rejected. Response streaming preserves supported redirect/range headers, but the gateway is not a fully transparent HTTP proxy.
+- Restrict access to the administrator dashboard and rate-limit login attempts at the reverse proxy, in addition to using HTTPS.
 - Test each actual upstream version separately. Local automated tests use mock servers rather than real Irodori/Kokoro inference.
 
 ## Acknowledgements
@@ -140,4 +143,3 @@ Thanks to **Aratako** for developing [Irodori-TTS-Server](https://github.com/Ara
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
 
-Model lists and supported endpoints remain visible and editable for all backend types. For Irodori-TTS and Kokoro-TTS, they are administrative metadata; dedicated-key requests are still routed using the API key. Auto-discovery requires upstream `/v1/models` support, while manual model entries can always be added.
