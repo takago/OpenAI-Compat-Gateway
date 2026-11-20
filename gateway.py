@@ -16,7 +16,7 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, parse_qsl, urlencode
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -36,6 +36,11 @@ def route_for(method: str, path: str):
     fixed = {"chat/completions":"chat", "completions":"completions", "responses":"responses", "embeddings":"embeddings", "audio/transcriptions":"audio_transcriptions", "audio/translations":"audio_translations", "audio/speech":"audio_speech", "images/generations":"images_generations", "images/edits":"images_edits", "images/variations":"images_variations", "videos":"videos"}
     if method == "POST" and path in fixed:
         return fixed[path], None
+    # Voice management is a vendor extension of the speech capability.
+    if path == "audio/voices" and method in {"GET", "POST"}:
+        return "audio_speech", None
+    if re.fullmatch(r"audio/voices/[A-Za-z0-9_-]{1,128}", path) and method in {"GET", "PUT", "DELETE"}:
+        return "audio_speech", None
     m = re.fullmatch(r"videos/([^/]+)(?:/(content|remix))?", path)
     if m and (method in {"GET", "DELETE"} or (method == "POST" and m.group(2) == "remix")):
         return "videos", m.group(1)
@@ -201,7 +206,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         await refresh_all()
         return {"object":"list","data":public_models(request.state.key)}
 
-    @app.api_route("/v1/{path:path}",methods=["GET","POST","DELETE"])
+    @app.api_route("/v1/{path:path}",methods=["GET","POST","PUT","DELETE"])
     async def proxy(path: str, request: Request):
         start=time.monotonic()
         key=request.state.key
@@ -211,7 +216,17 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if len(body)>max_upload:
             raise HTTPException(413,"Request too large")
         content_type=request.headers.get("content-type","")
-        model=extract_model(content_type,body) if not video_id else None
+        voice_management = path == "audio/voices" or path.startswith("audio/voices/")
+        # A model selector is accepted only for voice operations, which have no
+        # model field in their multipart/GET/DELETE API. Never forward it.
+        query_items = parse_qsl(request.url.query, keep_blank_values=True)
+        model_params = [value for name, value in query_items if name == "model"]
+        if voice_management and len(model_params) > 1:
+            raise HTTPException(400, "Specify model only once")
+        model = (model_params[0] if model_params else None) if voice_management else (
+            extract_model(content_type, body) if not video_id else None)
+        if voice_management and model == "":
+            raise HTTPException(400, "Invalid model selector")
         upstream_id=None
         if video_id:
             with store.db() as db:
@@ -246,20 +261,29 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 candidates=[m for m in candidates if store.allowed(key,cap,m["public_id"])]
                 if not candidates:
                     raise HTTPException(403,"Capability not permitted")
+            # Several public model names may intentionally share one speech
+            # backend. Voice endpoints address a backend, not a model.
+            if voice_management and model is None:
+                by_backend = {m["backend_id"]: m for m in candidates}
+                candidates = list(by_backend.values())
             if len(candidates)!=1:
                 raise HTTPException(400,"Specify a model to select a backend")
             selected=candidates[0]
             upstream_id=selected["upstream_id"]
             backend=next(b for b in store.backends() if b["id"]==selected["backend_id"])
-            if model is not None:
+            if model is not None and not voice_management:
                 body=replace_model(content_type,body,model,upstream_id)
         headers={k:v for k,v in request.headers.items() if k.lower() not in HOP | {"authorization","x-api-key","cookie","accept-encoding"}}
         if upstream_key(backend):
             headers["authorization"]="Bearer "+upstream_key(backend)
         headers["accept-encoding"]="identity"
         url=backend["url"]+"/"+path
-        if request.url.query:
-            url += "?"+request.url.query
+        if voice_management:
+            forward_query = [(name, value) for name, value in query_items if name != "model"]
+            if forward_query:
+                url += "?" + urlencode(forward_query)
+        elif request.url.query:
+            url += "?" + request.url.query
         try:
             req=app.state.client.build_request(method,url,content=body if method not in {"GET","DELETE"} else None,headers=headers)
             upstream=await app.state.client.send(req,stream=True)

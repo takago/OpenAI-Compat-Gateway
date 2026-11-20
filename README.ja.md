@@ -121,3 +121,41 @@ sudo systemctl start openai-compat-gateway
 ## コンパクトな管理画面（v0.5.1）
 
 バックエンド，モデル，APIキーの一覧をPC向けの横並び表形式に整理しました．検索・絞り込み・追加操作を同じ行に集約し，「編集」を押した行だけフォームを展開します．狭い画面では表を横スクロールできます．APIとSQLiteの構造は変更していません．
+
+
+## Irodori-TTS-Server との連携
+
+[Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server) を音声合成バックエンドとして接続できます．管理画面でバックエンドURLを `http://<サーバ>:8088/v1` として登録し，`/v1/models` から `irodori-tts` を検出したら，モデルの対応エンドポイントに **`POST /v1/audio/speech`** を設定し，公開してください．自動検出が利用できない場合は同じモデルIDを手動登録できます．APIキーの許可モデルに公開IDを指定します．
+
+`POST /v1/audio/speech` は `input`，`voice`，`response_format`，`speed`，`stream_format`，`irodori` オブジェクトの内容を基本的に変更せずに転送します．公開モデル名だけ上流モデル名に書き換えます．WAV等の音声バイト列，SSEの `audio_chunk` / `done` イベントもストリーミングで中継します．`irodori.caption`，参照音声指定，推論設定，LoRA設定などは上流サーバが解釈します．
+
+音声管理については，下記も中継します（ゲートウェイでは `audio_speech` の権限を使用します）．
+
+| メソッド | パス | 操作 |
+|---|---|---|
+| GET | `/v1/audio/voices` | 一覧 |
+| POST | `/v1/audio/voices` | 音声ファイル登録（multipart） |
+| GET | `/v1/audio/voices/{voice_id}` | 音声情報 |
+| PUT | `/v1/audio/voices/{voice_id}` | 音声ファイル更新（multipart） |
+| DELETE | `/v1/audio/voices/{voice_id}` | 音声削除 |
+
+音声管理エンドポイントにはリクエストの `model` フィールドがないため，アクセス可能な音声バックエンドが**複数**あるときは，クエリパラメータ `?model=<公開モデルID>` で対象を選択してください．このパラメータは上流へ転送しません．同じバックエンドに複数の公開モデルがあるだけなら自動選択できます．音声管理では読み取りと書き込みが同じ `audio_speech` 権限に含まれます．APIキーを配布する際には，音声ファイルを追加・更新・削除できる点に注意してください．
+
+```bash
+# 音声一覧
+curl -H "Authorization: Bearer $API_KEY" \
+  'https://gateway.example/v1/audio/voices?model=irodori-public'
+
+# 音声を登録
+curl -X POST -H "Authorization: Bearer $API_KEY" \
+  -F 'voice_id=sample' -F 'file=@sample.wav' \
+  'https://gateway.example/v1/audio/voices?model=irodori-public'
+
+# Voice Design による音声生成
+curl -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"irodori-public","input":"こんにちは．","voice":"none","response_format":"wav","irodori":{"caption":"明るく穏やかな声"}}' \
+  https://gateway.example/v1/audio/speech --output speech.wav
+```
+
+参照音声のパス（`irodori.ref_wav` など）は**Irodoriサーバ側**で解決されます．ゲートウェイ端末上のパスや任意のHTTP URLは参照できません．

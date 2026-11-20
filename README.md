@@ -85,3 +85,38 @@ The four tabs are Backends, Models, API Keys, and Usage. Lists are read-only sum
 ## Compact administration UI (v0.5.1)
 
 The admin interface uses compact tables on desktop for backends, models, and API keys. Search, filters, and actions share one toolbar. Select **Edit** to expand a row-level form. On narrow screens, tables can be scrolled horizontally. Existing API routes and database records are unchanged.
+
+
+## Irodori-TTS-Server integration
+
+Register [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server) as a backend at `http://<host>:8088/v1`. Discover or manually register the upstream `irodori-tts` model, publish it, and enable **`POST /v1/audio/speech`** for that model. Grant the client's API key access to its public model ID and the `audio_speech` capability.
+
+Speech requests forward `voice`, `speed`, `response_format`, `stream_format`, and the whole `irodori` options object unchanged; only the public model alias is rewritten. Binary audio and chunk-level SSE (`audio_chunk`, `done`) responses are streamed through.
+
+The following Irodori voice-management extensions are supported, with `audio_speech` permissions for **both reads and writes**:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/v1/audio/voices` | List voices |
+| POST | `/v1/audio/voices` | Upload voice (multipart) |
+| GET | `/v1/audio/voices/{voice_id}` | Voice metadata |
+| PUT | `/v1/audio/voices/{voice_id}` | Replace voice (multipart) |
+| DELETE | `/v1/audio/voices/{voice_id}` | Delete voice |
+
+When an API key can use multiple speech backends, specify the public model alias as a `?model=<public-model-id>` query parameter on a voice-management request. The selector is stripped before forwarding. Multiple published models on the same backend do not require a selector. Remember that authorizing `audio_speech` also allows upload, replacement and deletion of reference voices.
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  'https://gateway.example/v1/audio/voices?model=irodori-public'
+
+curl -H "Authorization: Bearer $API_KEY" \
+  -F 'voice_id=sample' -F 'file=@sample.wav' \
+  'https://gateway.example/v1/audio/voices?model=irodori-public'
+
+curl -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"irodori-public","input":"Hello","voice":"none","response_format":"wav","irodori":{"caption":"A calm voice"}}' \
+  https://gateway.example/v1/audio/speech --output speech.wav
+```
+
+Reference paths in `irodori.ref_wav` etc. are resolved by the upstream Irodori server, not on the gateway or client.
