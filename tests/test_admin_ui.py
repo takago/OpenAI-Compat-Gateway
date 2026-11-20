@@ -83,3 +83,14 @@ def test_key_type_labels_and_openai_model_choices():
     assert "k.backend_id?'特定バックエンド専用キー':'標準キー'" in page
     assert "m.published&&state.backends.some(b=>b.id===m.backend_id&&(b.kind||'openai')==='openai')" in page
     assert 'すべての公開モデル' not in page
+
+
+def test_dedicated_key_form_shows_readonly_endpoints():
+    page = HTML.read_text(encoding="utf-8")
+    assert 'id="key-backend-endpoints-wrap"' in page
+    assert 'id="key-backend-endpoints"' in page
+    assert "const target=E('key-backend-endpoints');" in page
+    assert "endpointTags(target,endpoints);" in page
+    assert "...dedicatedEndpoints(backend.kind)" in page
+    assert "E('key-backend-endpoints-wrap').classList.toggle('hidden',!dedicated)" in page
+    assert '対応エンドポイント</div><div id="key-backend-endpoints"' in page
