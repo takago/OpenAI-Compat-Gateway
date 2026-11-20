@@ -95,7 +95,7 @@ section{margin:0;padding:0}.tab-panel{margin:10px 0 0}
 @media(max-width:760px){body{padding:0 10px}.compact-toolbar{gap:6px}.compact-toolbar input[type=search]{flex:1;width:auto}.compact-toolbar .count{display:none}.compact-table{min-width:680px}.editor-grid,#backend-form,#manual-model-form,#key-form{grid-template-columns:1fr}}
 .header-actions{display:flex;align-items:center;gap:10px}.language-switch{display:inline-flex;border:1px solid #8886;border-radius:7px;overflow:hidden}.language-switch button{border:0;border-radius:0;background:transparent;padding:5px 10px;font-size:.8rem;font-weight:700}.language-switch button[aria-pressed="true"]{background:#245b91;color:#fff}.language-switch button:focus-visible{outline:2px solid #e2a94f;outline-offset:-2px}
 </style></head><body>
-<header><div><h1>OpenAI-Compat-Gateway</h1></div><div class="header-actions"><div class="language-switch" role="group" aria-label="Language / 言語"><button type="button" data-lang="ja" aria-pressed="true">JA</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><button id="logout" style="display:none">ログアウト</button></div></header><p aria-live="polite" id="message" role="status"></p>
+<header><div><h1>OpenAI-Compat-Gateway</h1></div><div class="header-actions"><div class="language-switch" role="group" aria-label="Language"><button type="button" data-lang="ja" aria-pressed="true">JA</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><button id="logout" style="display:none">ログアウト</button></div></header><p aria-live="polite" id="message" role="status"></p>
 <section class="hidden" id="setup"><h2>初回セットアップ</h2><p>管理者パスワードを登録してください．初回登録前は誰でも登録可能です．</p><form id="setup-form"><label>パスワード（12文字以上）<input id="setup-password" minlength="12" required="" type="password"/></label><label>確認<input id="setup-confirm" minlength="12" required="" type="password"/></label><button class="primary">管理者を登録</button></form></section>
 <section id="login"><h2>管理者ログイン</h2><form id="login-form"><label>パスワード<input id="password" required="" type="password"/></label><button class="primary">ログイン</button></form></section>
 <div id="app">
@@ -118,6 +118,20 @@ section{margin:0;padding:0}.tab-panel{margin:10px 0 0}
 'use strict';
 const translations = {
   "OpenAI-Compat-Gateway 管理": "OpenAI-Compat-Gateway Admin",
+  "管理機能": "Administration",
+  "モデル検索": "Search models",
+  "OpenAPIのPOSTルートを確認しました．": "Found POST routes in OpenAPI.",
+  "OpenAPIに対応POSTルートの記載がありません": "No matching POST routes were found in OpenAPI.",
+  "HTTPで存在を確認できた機能です．未検出は非対応を意味しません．": "Capabilities confirmed over HTTP. Not detected does not mean unsupported.",
+  "機能を確定できませんでした．既存設定は保持します． ": "Could not verify capabilities. Existing settings are preserved. ",
+  "非表示も表示": "Show hidden models",
+  "バックエンドで絞り込み": "Filter by backend",
+  "保存しました": "Saved",
+  "無効": "Disabled",
+  " — 独自APIの候補表示です．実サーバでの対応確認ではありません．": " — Potential custom API endpoint; actual support has not been verified.",
+  "ログインできませんでした": "Login failed",
+  "OpenAI互換API": "OpenAI-compatible API",
+
   "ログアウト": "Log out",
   "初回セットアップ": "Initial setup",
   "管理者パスワードを登録してください．初回登録前は誰でも登録可能です．": "Set an administrator password. Until setup is complete, anyone with access can configure the administrator account.",
@@ -251,7 +265,6 @@ const translations = {
   "期限が不正です": "Invalid expiration",
   "パスワードが一致しません": "Passwords do not match",
   "管理者を登録しました．ログインしてください": "Administrator created. Please log in.",
-  "ログインできませんでした": "Login failed",
   "バックアップファイルを選択してください": "Select a backup file",
   "現在のすべての登録情報をバックアップの内容で上書きします．続行しますか？": "This will overwrite all current configuration with the backup. Continue?",
   "管理者パスワードを再入力してください": "Re-enter the administrator password",
@@ -280,10 +293,13 @@ if(!['ja','en'].includes(language))language='en';
 function translate(str) {
  if(language==='ja'||!str)return str;
  if(Object.prototype.hasOwnProperty.call(translations,str))return translations[str];
+ const leading=(str.match(/^\s*/)||[''])[0],trailing=(str.match(/\s*$/)||[''])[0];
+ const core=str.slice(leading.length,str.length-trailing.length);
+ if(core&&Object.prototype.hasOwnProperty.call(translations,core))return leading+translations[core]+trailing;
  let result=str;
  // Translate known UI fragments in dynamic messages. Leave API identifiers unchanged.
  for(const [ja,en] of terms) {
-  if(ja.startsWith(' ')||ja.startsWith('（')||ja.endsWith(': ')||ja==='エラー: '||ja==='復元エラー: '||ja==='：モデル '||ja===' 公開')result=result.split(ja).join(en);
+  if(ja.startsWith(' ')||ja.startsWith('（')||ja.endsWith(': ')||ja==='エラー: '||ja==='復元エラー: '||ja==='：モデル '||ja===' 公開'||ja.startsWith('機能を確定できませんでした'))result=result.split(ja).join(en);
  }
  return result;
 }
@@ -473,7 +489,7 @@ function render(){
  const keyBody=makeTable(E('key-list'),['キー名','有効期限','状態','エンドポイント','モデル','操作']);
  for(const k of state.keys){const tr=node('tr');const keyState=!k.enabled?'無効':k.expires_at&&k.expires_at<Date.now()/1000?'期限切れ':'有効';
   const name=appendCell(tr,'','compact-name');name.append(node('div',k.name));const kindTag=node('div',k.backend_id?'拡張キー':'標準キー');kindTag.className='compact-secondary';name.append(kindTag);const sub=node('div','キーID: '+k.id);sub.className='compact-secondary';name.append(sub);
-  appendCell(tr,k.expires_at===null?'無期限':new Date(k.expires_at*1000).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}));
+  appendCell(tr,k.expires_at===null?'無期限':new Date(k.expires_at*1000).toLocaleString(window.gatewayLanguage.get()==='ja'?'ja-JP':'en-US',{timeZone:'Asia/Tokyo'}));
   const status=appendCell(tr,'');status.append(statusBadge(keyState,keyState==='有効'));
   const endpointsCell=appendCell(tr,'','compact-cell');
   const modelsCell=appendCell(tr,'','compact-cell');

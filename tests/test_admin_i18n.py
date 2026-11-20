@@ -20,3 +20,16 @@ def test_i18n_does_not_change_api_routes():
     assert "'backends','models','keys','usage'" in HTML
     assert "'POST /v1/audio/speech'" in HTML
     assert "'GET /v1/audio/voices'" in HTML
+
+
+def test_dynamic_and_form_translation_regressions():
+    for original, english in [
+        ('非表示も表示', 'Show hidden models'),
+        ('モデル検索', 'Search models'),
+        ('無効', 'Disabled'),
+        ('管理機能', 'Administration'),
+        (' — 独自APIの候補表示です．実サーバでの対応確認ではありません．', 'Potential custom API endpoint'),
+        ('OpenAPIのPOSTルートを確認しました．', 'Found POST routes in OpenAPI.'),
+    ]:
+        assert original in HTML and english in HTML
+    assert "const core=str.slice(leading.length,str.length-trailing.length)" in HTML
