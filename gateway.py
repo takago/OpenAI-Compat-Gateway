@@ -396,53 +396,31 @@ def create_app(config_path: str | None = None) -> FastAPI:
         direct_key=data.get("api_key", "")
         if not isinstance(direct_key,str) or len(direct_key)>4096:
             raise HTTPException(400,"Invalid backend API key")
-        issued=None
         with store.db() as db:
-            current=db.execute("SELECT kind,dedicated_key_hash FROM backends WHERE id=?",(bid,)).fetchone()
+            current=db.execute("SELECT kind FROM backends WHERE id=?",(bid,)).fetchone()
             old_kind=current["kind"] if current is not None else None
-            # Keep the key when switching between dedicated API types. A transition
-            # to OpenAI revokes it; a transition to dedicated issues a new secret.
-            if kind == "openai":
-                dedicated_hash=None
-            elif current is not None and old_kind in {"irodori", "kokoro"} and current["dedicated_key_hash"]:
-                dedicated_hash=current["dedicated_key_hash"]
-            else:
-                issued="ocg_" + secrets.token_urlsafe(32)
-                dedicated_hash=hash_key(issued)
             discover_enabled=int(bool(data.get("discover",True))) if kind=="openai" else 0
             db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,kind,dedicated_key_hash)
-                VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET
                 url=excluded.url,capabilities=excluded.capabilities,
                 key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,
                 api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END,
-                kind=excluded.kind,dedicated_key_hash=excluded.dedicated_key_hash""",
-                (bid,url,json.dumps([]),None,int(bool(data.get("enabled",True))),
-                 discover_enabled,direct_key,kind,dedicated_hash))
-            # Do not delete the model rows on conversion. They are ignored by
-            # OpenAI routing while the backend is dedicated, and remain available
-            # if the administrator changes the backend back to OpenAI.
+                kind=excluded.kind,dedicated_key_hash=NULL""",
+                (bid,url,json.dumps([]),None,int(bool(data.get("enabled",True))),discover_enabled,direct_key,kind))
+            # Switching back to OpenAI revokes dedicated credentials. Switching
+            # between dedicated types leaves their independently issued keys intact.
+            if kind == "openai" and old_kind in {"irodori", "kokoro"}:
+                db.execute("DELETE FROM api_keys WHERE backend_id=?", (bid,))
+            # Model rows are retained for later return to OpenAI mode.
         cached.pop(bid,None)
         result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
-        response={"ok":True,"discovery":result}
-        if issued:
-            response["key"]=issued
-        return response
-
-    @app.post("/admin/api/backends/{backend_id}/rotate-key")
-    async def rotate_dedicated_key(backend_id: str, request: Request):
-        admin_guard(request, True)
-        token="ocg_"+secrets.token_urlsafe(32)
-        with store.db() as db:
-            result=db.execute("""UPDATE backends SET dedicated_key_hash=?
-                WHERE id=? AND kind IN ('irodori','kokoro')""",(hash_key(token),backend_id))
-            if not result.rowcount:
-                raise HTTPException(404,"Dedicated backend not found")
-        return {"key":token,"message":"Previous dedicated key revoked"}
+        return {"ok":True,"discovery":result}
 
     @app.delete("/admin/api/backends/{backend_id}")
     async def remove_backend(backend_id:str,request:Request):
         admin_guard(request,True)
         with store.db() as db:
+            db.execute("DELETE FROM api_keys WHERE backend_id=?",(backend_id,))
             db.execute("DELETE FROM backends WHERE id=?",(backend_id,))
         cached.pop(backend_id,None)
         return {"ok":True}
@@ -578,13 +556,28 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def add_key(request:Request):
         admin_guard(request,True)
         data=await request.json()
-        name=data.get("name","").strip()
-        caps=data.get("capabilities",[])
-        models=data.get("models",[])
-        if not name or len(name)>100 or not isinstance(caps,list) or not caps or not set(caps)<=CAPABILITIES|ENDPOINTS|{"*"} or not isinstance(models,list) or not models or not all(isinstance(m,str) for m in models):
-            raise HTTPException(400,"Invalid key settings")
+        name=data.get("name","")
+        if not isinstance(name,str) or not name.strip() or len(name)>100:
+            raise HTTPException(400,"Invalid key name")
+        name=name.strip()
+        backend_id=data.get("backend_id")
+        expires_at=parse_expiration(data.get("expires_at"))
+        if backend_id is not None:
+            if not isinstance(backend_id,str):
+                raise HTTPException(400,"Invalid backend id")
+            with store.db() as db:
+                backend=db.execute("SELECT kind FROM backends WHERE id=?",(backend_id,)).fetchone()
+            if backend is None or backend["kind"] not in {"irodori","kokoro"}:
+                raise HTTPException(400,"Select an Irodori-TTS or Kokoro-TTS backend")
+            caps,models=[],[]
+        else:
+            caps=data.get("capabilities",[])
+            models=data.get("models",[])
+            if not isinstance(caps,list) or not caps or not all(isinstance(c,str) for c in caps) or not set(caps)<=CAPABILITIES|ENDPOINTS|{"*"} or not isinstance(models,list) or not models or not all(isinstance(m,str) for m in models):
+                raise HTTPException(400,"Invalid key settings")
+            caps=normalize(caps)
         try:
-            token=store.add_key(name,normalize(caps),models,parse_expiration(data.get("expires_at")))
+            token=store.add_key(name,caps,models,expires_at,backend_id)
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409,"Key name exists")
         return {"key":token,"message":"Copy this key now: it will not be shown again"}
@@ -624,6 +617,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
             row=db.execute("SELECT * FROM api_keys WHERE id=?",(key_id,)).fetchone()
             if row is None:
                 raise HTTPException(404,"Unknown key")
+            if row["backend_id"] is not None and (caps is not None or models is not None):
+                raise HTTPException(400,"Dedicated key permissions are fixed to the backend")
             expires_at = parse_expiration(data["expires_at"]) if "expires_at" in data else row["expires_at"]
             db.execute("UPDATE api_keys SET enabled=?,capabilities=?,models=?,expires_at=? WHERE id=?",(int(bool(data.get("enabled",row["enabled"]))),json.dumps(normalize(caps) if caps is not None else json.loads(row["capabilities"])),json.dumps(models if models is not None else json.loads(row["models"])),expires_at,key_id))
         return {"ok":True}

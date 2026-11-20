@@ -34,7 +34,8 @@ async def test_dedicated_irodori_and_kokoro_same_paths(tmp_path, monkeypatch):
                 r=await client.post('/admin/api/backends',headers=admin,json={
                     'id':bid,'kind':kind,'url':f'http://{bid}.example/v1','discover':True,'enabled':True})
                 assert r.status_code==200,r.text
-                keys[bid]=r.json()['key']
+                assert 'key' not in r.json()
+                keys[bid]=(await client.post('/admin/api/keys',headers=admin,json={'name':'key-'+bid,'backend_id':bid})).json()['key']
                 assert r.json()['discovery']['status']=='skipped'
             state=(await client.get('/admin/api/state')).json()
             assert not any('dedicated_key_hash' in b for b in state['backends'])
@@ -67,7 +68,8 @@ async def test_dedicated_irodori_and_kokoro_same_paths(tmp_path, monkeypatch):
             assert (await client.get('/v1/models',headers={'Authorization':'Bearer '+keys['a']})).status_code==200
             assert received[-1].url.host=='a.example'  # dedicated path is forwarded, not shared
             old=keys['a']
-            new=(await client.post('/admin/api/backends/a/rotate-key',headers=admin)).json()['key']
+            key_id=next(k['id'] for k in (await client.get('/admin/api/state')).json()['keys'] if k['backend_id']=='a')
+            new=(await client.post(f'/admin/api/keys/{key_id}/rotate',headers=admin)).json()['key']
             assert (await client.get('/v1/audio/voices',headers={'Authorization':'Bearer '+old})).status_code==401
             assert (await client.get('/v1/audio/voices',headers={'Authorization':'Bearer '+new})).status_code==200
             assert (await client.post('/admin/api/backends',headers=admin,json={

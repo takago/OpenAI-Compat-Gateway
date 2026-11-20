@@ -121,6 +121,20 @@ class Store:
             cols = {r[1] for r in db.execute("PRAGMA table_info(api_keys)")}
             if "expires_at" not in cols:
                 db.execute("ALTER TABLE api_keys ADD COLUMN expires_at INTEGER")
+            if "backend_id" not in cols:
+                db.execute("ALTER TABLE api_keys ADD COLUMN backend_id TEXT")
+            # Migrate dedicated credentials issued by earlier versions without
+            # invalidating their secrets (only hashes are stored).
+            legacy = db.execute("SELECT id,dedicated_key_hash FROM backends WHERE dedicated_key_hash IS NOT NULL").fetchall()
+            for backend in legacy:
+                name = "専用API（移行）: " + backend["id"]
+                suffix = 1
+                while db.execute("SELECT 1 FROM api_keys WHERE name=?", (name,)).fetchone():
+                    suffix += 1
+                    name = "専用API（移行）: " + backend["id"] + "-" + str(suffix)
+                db.execute("""INSERT OR IGNORE INTO api_keys(name,hash,capabilities,models,created_at,backend_id)
+                    VALUES(?,?,?,?,?,?)""", (name,backend["dedicated_key_hash"],"[]","[]",int(time.time()),backend["id"]))
+            db.execute("UPDATE backends SET dedicated_key_hash=NULL WHERE dedicated_key_hash IS NOT NULL")
         os.chmod(path, 0o600)
         with self.db() as db:
             db.execute("INSERT OR IGNORE INTO settings(name,value) VALUES('session_secret',?)", (secrets.token_urlsafe(48),))
@@ -159,7 +173,9 @@ class Store:
     def dedicated_backend_for(self, secret: str):
         digest = hash_key(secret)
         with self.db() as db:
-            row = db.execute("SELECT * FROM backends WHERE dedicated_key_hash=? AND enabled=1 AND kind IN ('irodori','kokoro')", (digest,)).fetchone()
+            row = db.execute("""SELECT b.* FROM api_keys k JOIN backends b ON b.id=k.backend_id
+                 WHERE k.hash=? AND k.enabled=1 AND (k.expires_at IS NULL OR k.expires_at>?)
+                 AND b.enabled=1 AND b.kind IN ('irodori','kokoro')""", (digest,int(time.time()))).fetchone()
             return dict(row) if row else None
 
     def models(self):
@@ -173,13 +189,13 @@ class Store:
     def key_for(self, secret: str):
         digest = hash_key(secret)
         with self.db() as db:
-            row = db.execute("SELECT * FROM api_keys WHERE hash=? AND enabled=1 AND (expires_at IS NULL OR expires_at>?)", (digest, int(time.time()))).fetchone()
+            row = db.execute("SELECT * FROM api_keys WHERE hash=? AND backend_id IS NULL AND enabled=1 AND (expires_at IS NULL OR expires_at>?)", (digest, int(time.time()))).fetchone()
             return dict(row) if row else None
 
-    def add_key(self, name: str, capabilities: list[str], models: list[str], expires_at: int | None = None):
+    def add_key(self, name: str, capabilities: list[str], models: list[str], expires_at: int | None = None, backend_id: str | None = None):
         token = "ocg_" + secrets.token_urlsafe(32)
         with self.db() as db:
-            db.execute("INSERT INTO api_keys(name,hash,capabilities,models,created_at,expires_at) VALUES(?,?,?,?,?,?)", (name, hash_key(token), json.dumps(capabilities), json.dumps(models), int(time.time()), expires_at))
+            db.execute("INSERT INTO api_keys(name,hash,capabilities,models,created_at,expires_at,backend_id) VALUES(?,?,?,?,?,?,?)", (name, hash_key(token), json.dumps(capabilities), json.dumps(models), int(time.time()), expires_at, backend_id))
         return token
 
     def allowed(self, key: dict, cap: str, model: str | None) -> bool:

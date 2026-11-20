@@ -9,15 +9,15 @@ Developed by TAKAGO LAB, Kanazawa Institute of Technology. Not affiliated with O
 ## Features
 
 - **OpenAI-compatible:** existing model aliases, endpoint permissions, model discovery, regular API keys, and chat / images / audio / video forwarding remain supported.
-- **Irodori-TTS / Kokoro-TTS:** each registered backend automatically gets **its own dedicated API key**. The key selects the backend; the gateway forwards the original `/v1/...` method, path, query, JSON or multipart body, and streaming response without rewriting `model` or `voice`.
+- **Irodori-TTS / Kokoro-TTS:** create a dedicated API key from the **API Keys** tab for the selected backend. The key selects the backend; the gateway forwards the original `/v1/...` method, path, query, JSON or multipart body, and streaming response without rewriting `model` or `voice`.
 - The admin UI manages backend registration and regular API keys. Configuration and key hashes live in SQLite.
 - A dedicated key never authorizes another backend. A regular key never authorizes a dedicated backend.
 
 | Backend type in the UI | Key management | Routing |
 |---|---|---|
 | OpenAI-compatible | Regular API key (model / endpoint permissions) | Request `model` |
-| Irodori-TTS | Automatically generated per-backend key | API key |
-| Kokoro-TTS | Automatically generated per-backend key | API key |
+| Irodori-TTS | Dedicated key issued from API Keys tab | API key |
+| Kokoro-TTS | Dedicated key issued from API Keys tab | API key |
 
 ## Install and open the dashboard
 
@@ -46,14 +46,21 @@ Your API base URL is then `https://ai.example.com/v1`; the dashboard is at `/adm
 In **Backends → Add**, enter a backend ID, its API URL ending in `/v1`, and select a type from the dropdown:
 
 - **OpenAI-compatible:** keep the existing model discovery / manual registration workflow. Publish models and choose supported endpoints under **Models**. Create regular keys under **API Keys** and assign model / endpoint permissions.
-- **Irodori-TTS:** enter the Irodori-TTS-Server `/v1` URL (for example `http://192.168.1.20:8088/v1`). A dedicated API key is generated automatically. Copy it when it appears.
-- **Kokoro-TTS:** enter the Kokoro-FastAPI `/v1` URL (often `http://192.168.1.21:8880/v1`). Its own dedicated key is generated separately.
+- **Irodori-TTS:** register the Irodori-TTS-Server `/v1` URL (for example `http://192.168.1.20:8088/v1`).
+- **Kokoro-TTS:** register the Kokoro-FastAPI `/v1` URL (for example `http://192.168.1.21:8880/v1`).
 
-Backend API keys (if the upstream requires one) can be entered in the backend's **Upstream API key** field; they are different from keys issued by the gateway to its clients.
+If the upstream requires authentication, configure its key in the backend settings. This is separate from the key issued to gateway clients.
 
-**Keys:** only SHA-256 hashes of gateway-issued keys are stored. Copy the full key when issued; it cannot be shown again. **Edit → Regenerate dedicated key** revokes the old dedicated key and displays a replacement. Deleting or disabling a dedicated backend disables access through its key. Existing regular keys and expiration / permission settings are unchanged.
+## API key issuance and management
 
-You can change a registered backend type in **Backends → Edit**. Switching from OpenAI-compatible to Irodori-TTS or Kokoro-TTS issues a new dedicated key. Switching between the two dedicated types keeps the existing key. Switching back to OpenAI-compatible revokes the dedicated key. Existing model registrations are preserved and can be reused if you switch back to OpenAI-compatible.
+Open the **API Keys** tab and click **Issue** (Add):
+
+- **OpenAI-compatible:** choose the allowed endpoints and models, as before.
+- **Dedicated API:** select exactly one registered Irodori-TTS or Kokoro-TTS backend. Multiple backends can each have their own client key.
+
+Key expiration, enabled status, rotation, and deletion are all managed under **API Keys**. Only the key hash is stored, so **copy the full secret when issued or rotated**; it cannot be displayed again later.
+
+Backend registration or type changes do not automatically issue keys. Switching between Irodori-TTS and Kokoro-TTS retains any existing dedicated keys. Switching to OpenAI-compatible revokes and deletes the keys attached to that backend. Previously registered OpenAI model records are preserved for later use.
 
 ## Use the API
 
@@ -100,11 +107,11 @@ curl https://ai.example.com/v1/audio/speech \
 
 Other Kokoro-FastAPI endpoints under `/v1/`, including `/v1/audio/voices/combine` where offered, are passed to the selected backend. Supported options are determined by the installed upstream server version. Unsupported paths return the upstream response.
 
-**Multiple servers:** two Irodori registrations generate two distinct keys; `/v1/audio/voices` and `/v1/audio/speech` are sent to the backend selected by the key. `voice` remains a regular upstream request field.
+**Multiple servers:** you can issue distinct keys for two Irodori registrations; `/v1/audio/voices` and `/v1/audio/speech` are sent to the backend selected by the key. `voice` remains a regular upstream request field.
 
 ## Upgrade and operations
 
-Re-running `sudo ./install.sh` updates the service and keeps the persistent SQLite database at `/var/lib/openai-compat-gateway/gateway.sqlite3`. The schema migration adds the backend type and dedicated-key hash without invalidating existing regular keys. Previously registered backends default to **OpenAI-compatible**.
+Re-running `sudo ./install.sh` updates the service and keeps the persistent SQLite database at `/var/lib/openai-compat-gateway/gateway.sqlite3`. The schema migration retains existing regular keys and migrates previously issued dedicated-key hashes into the API Keys list without changing the secrets. Previously registered backends default to **OpenAI-compatible**.
 
 ```bash
 sudo systemctl status openai-compat-gateway

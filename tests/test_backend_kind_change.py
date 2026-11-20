@@ -32,8 +32,8 @@ async def test_kind_switch_keeps_models_and_dedicated_key_rules(tmp_path,monkeyp
             speech={'model':'test-public','input':'hi','voice':'hadou'}
             assert (await c.post('/v1/audio/speech',headers={'Authorization':'Bearer '+regular},json=speech)).status_code==200
             r=await c.post('/admin/api/backends',headers=hdr,json=body('irodori'))
-            assert r.status_code==200 and 'key' in r.json()
-            dedicated=r.json()['key']
+            assert r.status_code==200 and 'key' not in r.json()
+            dedicated=(await c.post('/admin/api/keys',headers=hdr,json={'name':'dedicated','backend_id':'tts'})).json()['key']
             assert (await c.post('/v1/audio/speech',headers={'Authorization':'Bearer '+regular},json=speech)).status_code!=200
             assert (await c.get('/v1/audio/voices',headers={'Authorization':'Bearer '+dedicated})).status_code==200
             state=(await c.get('/admin/api/state')).json()
@@ -47,4 +47,6 @@ async def test_kind_switch_keeps_models_and_dedicated_key_rules(tmp_path,monkeyp
             assert (await c.get('/v1/audio/voices',headers={'Authorization':'Bearer '+dedicated})).status_code==401
             assert (await c.post('/v1/audio/speech',headers={'Authorization':'Bearer '+regular},json=speech)).status_code==200
             r=await c.post('/admin/api/backends',headers=hdr,json=body('irodori'))
-            assert r.status_code==200 and r.json()['key'] != dedicated
+            assert r.status_code==200 and 'key' not in r.json()
+            fresh=(await c.post('/admin/api/keys',headers=hdr,json={'name':'fresh-dedicated','backend_id':'tts'})).json()['key']
+            assert fresh != dedicated
