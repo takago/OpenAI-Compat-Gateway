@@ -134,3 +134,7 @@ Thanks to **Aratako**, developer of [Irodori-TTS-Server](https://github.com/Arat
 ## License
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
+
+## Administration interface language
+
+The admin interface supports **English and Japanese**. On first visit, it follows your browser's preferred language. Use the **JA / EN** control at the top right to switch at any time. Your choice is saved in the browser, and it does not change API behavior or stored configuration.

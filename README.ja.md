@@ -134,3 +134,7 @@ sudo journalctl -u openai-compat-gateway -f
 ## ライセンス
 
 MIT License．Copyright (c) 2026 TAKAGO LAB．
+
+## 管理画面の表示言語
+
+管理画面は**日本語と英語**に対応しています．初回はブラウザの優先言語に合わせて表示し，右上の **JA / EN** でいつでも切り替えられます．選択した言語はブラウザに保存されます．APIの動作や登録情報は変更されません．

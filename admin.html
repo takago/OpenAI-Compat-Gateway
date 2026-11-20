@@ -93,8 +93,9 @@ section{margin:0;padding:0}.tab-panel{margin:10px 0 0}
 #backend-form>p,#backend-form>.toolbar,#manual-model-form>.chips,#key-form>.chips,#key-form>.toolbar,#key-form>button{grid-column:1/-1}
 #key-reveal{margin:5px 0}.site-footer{margin-top:22px;padding:11px 0}
 @media(max-width:760px){body{padding:0 10px}.compact-toolbar{gap:6px}.compact-toolbar input[type=search]{flex:1;width:auto}.compact-toolbar .count{display:none}.compact-table{min-width:680px}.editor-grid,#backend-form,#manual-model-form,#key-form{grid-template-columns:1fr}}
+.header-actions{display:flex;align-items:center;gap:10px}.language-switch{display:inline-flex;border:1px solid #8886;border-radius:7px;overflow:hidden}.language-switch button{border:0;border-radius:0;background:transparent;padding:5px 10px;font-size:.8rem;font-weight:700}.language-switch button[aria-pressed="true"]{background:#245b91;color:#fff}.language-switch button:focus-visible{outline:2px solid #e2a94f;outline-offset:-2px}
 </style></head><body>
-<header><div><h1>OpenAI-Compat-Gateway</h1></div><button id="logout" style="display:none">ログアウト</button></header><p aria-live="polite" id="message" role="status"></p>
+<header><div><h1>OpenAI-Compat-Gateway</h1></div><div class="header-actions"><div class="language-switch" role="group" aria-label="Language / 言語"><button type="button" data-lang="ja" aria-pressed="true">JA</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><button id="logout" style="display:none">ログアウト</button></div></header><p aria-live="polite" id="message" role="status"></p>
 <section class="hidden" id="setup"><h2>初回セットアップ</h2><p>管理者パスワードを登録してください．初回登録前は誰でも登録可能です．</p><form id="setup-form"><label>パスワード（12文字以上）<input id="setup-password" minlength="12" required="" type="password"/></label><label>確認<input id="setup-confirm" minlength="12" required="" type="password"/></label><button class="primary">管理者を登録</button></form></section>
 <section id="login"><h2>管理者ログイン</h2><form id="login-form"><label>パスワード<input id="password" required="" type="password"/></label><button class="primary">ログイン</button></form></section>
 <div id="app">
@@ -111,6 +112,224 @@ section{margin:0;padding:0}.tab-panel{margin:10px 0 0}
 <details id="key-details"><summary>APIキー発行フォーム</summary><form id="key-form"><label>キー名<input id="key-name" placeholder="students" required=""/></label><label>キー種別<select id="key-kind"><option value="openai">標準キー</option><option value="dedicated">拡張キー</option></select></label><label class="hidden" id="key-backend-wrap">対象バックエンド<select id="key-backend"></select></label><label class="hidden" id="key-backend-model-wrap">モデル名<div id="key-backend-models" class="muted" aria-live="polite"></div></label><div class="hidden" id="key-backend-endpoints-wrap"><div class="item-label">対応エンドポイント</div><div id="key-backend-endpoints" aria-live="polite"></div></div><div id="key-standard-fields"><label>許可するAPIエンドポイント</label><div class="toolbar"><label><input id="key-all-caps" type="checkbox"/> すべての機能</label></div><div class="chips" id="key-capabilities"></div><label>利用できるモデル</label><div class="toolbar"><label><input checked="" id="key-all-models" type="checkbox"/> すべての公開モデル</label></div><div class="chips" id="key-model-options"></div></div><label>有効期限<select id="key-expiry"><option value="none">無期限</option><option value="7">7日</option><option value="30">30日</option><option value="90">90日</option><option value="custom">日時指定（JST）</option></select></label><label class="hidden" id="key-date-wrap">終了日時（JST）<input id="key-date" type="datetime-local"/></label><button class="primary">APIキーを発行</button></form></details></section>
 <section aria-labelledby="tab-usage" class="tab-panel hidden" id="panel-usage" role="tabpanel"><div class="scroll" id="metrics"></div><details><summary>設定のバックアップ・復元</summary><p class="muted">バックアップにはAPIキーのハッシュやバックエンドの認証情報が含まれます．厳重に保管してください．復元前に既存データをバックアップし，復元後はサービスを再起動してください．</p><button id="backup-download" type="button">SQLiteバックアップを保存</button><label>バックアップファイル（.sqlite3）<input accept=".sqlite3,.db" id="backup-file" type="file"/></label><button class="danger" id="backup-restore" type="button">バックアップから復元</button></details></section></div>
 <footer class="site-footer"><p>OpenAI-Compat-Gateway · © 2026 TAKAGO LAB · Kanazawa Institute of Technology</p><p><a href="https://github.com/takago/OpenAI-Compat-Gateway" rel="noopener noreferrer" target="_blank">GitHub</a></p></footer>
+<script>
+/* Management UI localization. Only presentation strings are translated; IDs and API payloads are unchanged. */
+(function(){
+'use strict';
+const translations = {
+  "OpenAI-Compat-Gateway 管理": "OpenAI-Compat-Gateway Admin",
+  "ログアウト": "Log out",
+  "初回セットアップ": "Initial setup",
+  "管理者パスワードを登録してください．初回登録前は誰でも登録可能です．": "Set an administrator password. Until setup is complete, anyone with access can configure the administrator account.",
+  "パスワード（12文字以上）": "Password (at least 12 characters)",
+  "確認": "Confirm",
+  "管理者を登録": "Create administrator",
+  "管理者ログイン": "Administrator login",
+  "パスワード": "Password",
+  "ログイン": "Log in",
+  "バックエンド": "Backends",
+  "モデル": "Models",
+  "APIキー": "API Keys",
+  "利用状況": "Usage",
+  "＋ 追加": "+ Add",
+  "黄緑色は独自APIの候補です．実際の対応状況は上流サーバで確認してください．": "Lime highlights indicate potential custom endpoints. Verify actual support with the upstream server.",
+  "バックエンド追加フォーム": "Add backend",
+  "バックエンドID": "Backend ID",
+  "API URL（/v1まで）": "API URL (through /v1)",
+  "種別": "Type",
+  "OpenAI互換": "OpenAI-compatible",
+  "Irodori-TTS": "Irodori-TTS",
+  "Kokoro-TTS": "Kokoro-TTS",
+  "OpenAI互換ではモデル単位で管理します．": "OpenAI-compatible backends are managed per model.",
+  "バックエンドAPIキー（変更しない場合は空欄）": "Upstream API key (leave blank to keep existing)",
+  "登録済みのバックエンドAPIキーを削除": "Remove saved upstream API key",
+  "有効": "Enabled",
+  "/v1/modelsから自動取得": "Discover from /v1/models",
+  "保存": "Save",
+  "入力をクリア": "Clear fields",
+  "モデル追加フォーム": "Add model",
+  "元モデルID": "Original model ID",
+  "公開モデル名（省略時は同じID）": "Public model name (defaults to original ID)",
+  "対応エンドポイント": "Supported endpoints",
+  "追加時に公開する": "Publish on creation",
+  "モデルを追加": "Add model",
+  "すべてのバックエンド": "All backends",
+  "非表示も表示": "Show unpublished",
+  "再取得": "Refresh",
+  "発行したAPIキー": "Issued API key",
+  "キーをコピー": "Copy key",
+  "表示を閉じる": "Hide key",
+  "この画面を閉じると，キー全文は再表示できません．": "You cannot view this key again after closing this panel.",
+  "APIキー発行フォーム": "Create API key",
+  "キー名": "Key name",
+  "キー種別": "Key type",
+  "標準キー": "Standard key",
+  "拡張キー": "Extended key",
+  "対象バックエンド": "Target backend",
+  "モデル名": "Model names",
+  "許可するAPIエンドポイント": "Allowed API endpoints",
+  "すべての機能": "All capabilities",
+  "利用できるモデル": "Allowed models",
+  "すべての公開モデル": "All public models",
+  "有効期限": "Expiration",
+  "無期限": "No expiration",
+  "7日": "7 days",
+  "30日": "30 days",
+  "90日": "90 days",
+  "日時指定（JST）": "Custom date/time (JST)",
+  "終了日時（JST）": "Expiration date/time (JST)",
+  "APIキーを発行": "Issue API key",
+  "設定のバックアップ・復元": "Backup and restore",
+  "バックアップにはAPIキーのハッシュやバックエンドの認証情報が含まれます．厳重に保管してください．復元前に既存データをバックアップし，復元後はサービスを再起動してください．": "Backups contain API key hashes and upstream credentials. Store them securely. Back up the current database before restoring, then restart the service.",
+  "SQLiteバックアップを保存": "Download SQLite backup",
+  "バックアップファイル（.sqlite3）": "Backup file (.sqlite3)",
+  "バックアップから復元": "Restore backup",
+  "OpenAI互換ではモデル単位で振り分けます．": "OpenAI-compatible requests are routed by model.",
+  "モデルと対応エンドポイントも登録・確認できます．拡張キーは「APIキー」タブで発行します．": "Models and endpoints can also be registered and viewed. Create extended keys on the API Keys tab.",
+  "APIに公開する": "Publish via API",
+  "キャンセル": "Cancel",
+  "公開モデルIDを入力してください": "Enter a public model ID",
+  "モデル設定を保存しました": "Model settings saved",
+  "公開モデルID": "Public model ID",
+  "バックエンドAPIキー（変更時のみ）": "Upstream API key (only when changing)",
+  "バックエンドを有効にする": "Enable backend",
+  "バックエンドを保存しました": "Backend saved",
+  "バックエンドは未登録です．「＋ 追加」から登録してください．": "No backends registered. Click + Add to create one.",
+  "削除": "Delete",
+  "編集": "Edit",
+  "再発行": "Rotate",
+  "操作": "Actions",
+  "状態": "Status",
+  "停止": "Disabled",
+  "非公開": "Unpublished",
+  "公開": "Published",
+  "表示": "Visible",
+  "非表示": "Hidden",
+  "取得失敗 — ": "Discovery failed — ",
+  "検出済": "Detected",
+  "現在未検出": "Not currently detected",
+  "取得せず": "Not fetched",
+  "手動登録": "Manual entry",
+  "モデルを登録しました": "Model created",
+  "モデルを削除しました": "Model deleted",
+  "モデルの再取得が完了しました": "Model refresh completed",
+  "該当するモデルはありません．": "No matching models.",
+  "キーID: ": "Key ID: ",
+  "（キーID: ": "(Key ID: ",
+  "（削除済み）": "(deleted)",
+  "バックエンドID: ": "Backend ID: ",
+  "元モデルID: ": "Original model ID: ",
+  "対象バックエンドID: ": "Target backend ID: ",
+  "登録モデルなし": "No registered models",
+  "未登録（モデルタブから追加できます）": "None registered (add them on Models tab)",
+  "バックエンド未登録": "Backend not found",
+  "エンドポイント": "Endpoints",
+  "件数": "Requests",
+  "平均応答開始 ms": "Average time to first byte (ms)",
+  "なし": "None",
+  "未設定": "Not set",
+  "期限切れ": "Expired",
+  "キーを有効にする": "Enable key",
+  "拡張キーの期限・状態を編集": "Edit extended key expiration and status",
+  "標準キーの権限・期限を編集": "Edit standard key permissions and expiration",
+  "すべてのエンドポイント": "All endpoints",
+  "利用可能なモデル": "Available models",
+  "有効期限（日本時間，空欄は無期限）": "Expiration (JST; blank means no expiration)",
+  "キー設定を変更しました": "Key settings updated",
+  "エンドポイントとモデルを選択してください": "Select endpoints and models",
+  "機能とモデルを選択してください": "Select capabilities and models",
+  "キーを再発行しました": "API key rotated",
+  "APIキーを削除しました": "API key deleted",
+  "APIキーは未登録です．「＋ 追加」から作成してください．": "No API keys yet. Click + Add to create one.",
+  "新しいAPIキー": "New API key",
+  "APIキーを発行しました": "API key issued",
+  "APIキーをコピーしました": "API key copied",
+  "コピーに失敗しました．キーを選択してコピーしてください": "Copy failed. Select the key and copy it manually.",
+  "対象バックエンドを選択してください": "Select a target backend",
+  "日時が正しくありません": "Invalid date/time",
+  "日時を指定してください": "Enter a date/time",
+  "期限が不正です": "Invalid expiration",
+  "パスワードが一致しません": "Passwords do not match",
+  "管理者を登録しました．ログインしてください": "Administrator created. Please log in.",
+  "ログインできませんでした": "Login failed",
+  "バックアップファイルを選択してください": "Select a backup file",
+  "現在のすべての登録情報をバックアップの内容で上書きします．続行しますか？": "This will overwrite all current configuration with the backup. Continue?",
+  "管理者パスワードを再入力してください": "Re-enter the administrator password",
+  "復元しました．sudo systemctl restart openai-compat-gateway を実行してください．": "Restored. Run sudo systemctl restart openai-compat-gateway.",
+  "復元エラー: ": "Restore error: ",
+  "エラー: ": "Error: ",
+  "表示しました": "Shown",
+  "非表示にしました": "Hidden",
+  "モデル一覧を自動取得": "Discover models automatically",
+  " 件": " entries",
+" 公開": " published",
+  "：モデル ": "; models ",
+  " を削除しますか？ 所属モデルも削除されます．": " — delete this backend? Its models will also be deleted.",
+  " を削除しますか？ 再取得すれば復元できます（非公開・エンドポイント未設定）．": " — delete this model? Refreshing discovery can restore it as unpublished without endpoints.",
+  " を削除しますか？": " — delete?",
+  " のキーを再発行しますか？以前のキーは無効になります．": " — rotate this API key? The previous key will be invalidated.",
+  " のキーを完全に削除しますか？": " — permanently delete this API key?",
+  " の新しいキー": " — new key"
+};
+const terms=Object.entries(translations).sort((a,b)=>b[0].length-a[0].length);
+const originalTexts=new WeakMap(), renderedTexts=new WeakMap();
+const originalAttrs=new WeakMap(), renderedAttrs=new WeakMap();
+let language='ja';
+try { language=localStorage.getItem('gateway-admin-language') || ((navigator.language||'').toLowerCase().startsWith('ja')?'ja':'en'); } catch(_) { language=(navigator.language||'').toLowerCase().startsWith('ja')?'ja':'en'; }
+if(!['ja','en'].includes(language))language='en';
+function translate(str) {
+ if(language==='ja'||!str)return str;
+ if(Object.prototype.hasOwnProperty.call(translations,str))return translations[str];
+ let result=str;
+ // Translate known UI fragments in dynamic messages. Leave API identifiers unchanged.
+ for(const [ja,en] of terms) {
+  if(ja.startsWith(' ')||ja.startsWith('（')||ja.endsWith(': ')||ja==='エラー: '||ja==='復元エラー: '||ja==='：モデル '||ja===' 公開')result=result.split(ja).join(en);
+ }
+ return result;
+}
+function updateText(n){
+ if(!n||!n.nodeValue||!n.nodeValue.trim())return;
+ const previous=renderedTexts.get(n);
+ if(!originalTexts.has(n)|| (previous!==undefined&&n.nodeValue!==previous&&n.nodeValue!==originalTexts.get(n)))originalTexts.set(n,n.nodeValue);
+ const original=originalTexts.get(n), translated=translate(original);
+ renderedTexts.set(n,translated);
+ if(n.nodeValue!==translated)n.nodeValue=translated;
+}
+function updateAttrs(e){
+ for(const key of ['title','placeholder','aria-label']) {
+  if(!e.hasAttribute(key))continue;
+  let record=originalAttrs.get(e)||{},rendered=renderedAttrs.get(e)||{};
+  const current=e.getAttribute(key);
+  if(!(key in record)||(key in rendered&&current!==rendered[key]&&current!==record[key]))record[key]=current;
+  const target=translate(record[key]);rendered[key]=target;
+  originalAttrs.set(e,record);renderedAttrs.set(e,rendered);
+  if(current!==target)e.setAttribute(key,target);
+ }
+}
+function translateNode(n){
+ if(n.nodeType===3){updateText(n);return}
+ if(n.nodeType!==1)return;
+ if(['SCRIPT','STYLE','TEXTAREA'].includes(n.tagName))return;
+ updateAttrs(n);
+ for(const child of n.childNodes)translateNode(child);
+}
+function apply(){document.documentElement.lang=language;document.title=translate('OpenAI-Compat-Gateway 管理');document.querySelectorAll('[data-lang]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===language)));translateNode(document.body)}
+const originalConfirm=window.confirm.bind(window),originalPrompt=window.prompt.bind(window);
+window.confirm=(message)=>originalConfirm(translate(String(message)));
+window.prompt=(message,defaultValue)=>originalPrompt(translate(String(message)),defaultValue);
+window.gatewayLanguage={get:()=>language,set:(lang)=>{if(!['ja','en'].includes(lang))return;language=lang;try{localStorage.setItem('gateway-admin-language',language)}catch(_){}apply()},translate};
+const observer=new MutationObserver(records=>{
+ for(const r of records){
+  if(r.type==='characterData')updateText(r.target);
+  else if(r.type==='attributes')updateAttrs(r.target);
+  else for(const n of r.addedNodes)translateNode(n);
+ }
+});
+observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','placeholder','aria-label']});
+document.querySelectorAll('[data-lang]').forEach(b=>b.addEventListener('click',()=>window.gatewayLanguage.set(b.dataset.lang)));
+apply();
+})();
+</script>
 <script>
 'use strict';let csrf='',state=null,visibleKey='',activeTab='backends';const E=id=>document.getElementById(id);
 const TAB_IDS=['backends','models','keys','usage'];
@@ -140,7 +359,7 @@ function makeChecks(parent,items,prefix,selected){parent.replaceChildren();for(c
 const checked=id=>[...E(id).querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value);
 function table(headers,rows){const t=node('table'),h=node('tr');headers.forEach(x=>h.append(node('th',x)));t.append(h,...rows);return t}
 async function api(path,method='GET',data){const headers={Accept:'application/json'};if(method!=='GET')headers['X-CSRF-Token']=csrf;if(data!==undefined)headers['Content-Type']='application/json';const r=await fetch('/admin/api/'+path,{method,headers,credentials:'same-origin',body:data===undefined?undefined:JSON.stringify(data)});let v;try{v=await r.json()}catch{v={detail:'Invalid server response'}}if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:JSON.stringify(v));return v}
-async function load(){try{const r=await api('setup-status');E('setup').classList.toggle('hidden',!r.needs_setup);if(r.needs_setup){E('login').classList.add('hidden');E('app').style.display='none';return}}catch(e){say(e.message)}try{state=await api('state');csrf=state.csrf;E('login').classList.add('hidden');E('app').style.display='block';E('logout').style.display='';switchTab(activeTab);render()}catch{E('login').classList.remove('hidden');E('app').style.display='none';E('app-subtitle').style.display='none'}}
+async function load(){try{const r=await api('setup-status');E('setup').classList.toggle('hidden',!r.needs_setup);if(r.needs_setup){E('login').classList.add('hidden');E('app').style.display='none';return}}catch(e){say(e.message)}try{state=await api('state');csrf=state.csrf;E('login').classList.add('hidden');E('app').style.display='block';E('logout').style.display='';switchTab(activeTab);render()}catch{E('login').classList.remove('hidden');E('app').style.display='none';(E('app-subtitle')||{style:{}}).style.display='none'}}
 async function act(fn,success='保存しました'){try{const result=await fn();await load();say(success);return result}catch(e){say('エラー: '+e.message);return null}}
 function statusBadge(text, ok=false){const e=node('span',text);e.className='status '+(ok?'on':'off');return e}
 function miniTag(value){const e=node('span',value);e.className='item-tag';return e}
@@ -313,7 +532,7 @@ E('model-filter').onchange=render;E('show-hidden').onchange=render;E('model-sear
 E('backend-add-btn').onclick=()=>{const d=E('backend-details');d.open=!d.open;if(d.open)E('backend-id').focus()};
 E('manual-add-btn').onclick=()=>{const d=E('manual-model-details');d.open=!d.open;if(d.open)E('manual-model-backend').focus()};
 E('key-add-btn').onclick=()=>{const d=E('key-details');d.open=!d.open;if(d.open)E('key-name').focus()};
-E('backend-kind').onchange=()=>{E('backend-discover').disabled=false;E('backend-kind-note').textContent=E('backend-kind').value==='openai'?'OpenAI互換ではモデル単位で振り分けます．':'モデルと対応エンドポイントも登録・確認できます．専用キーは「APIキー」タブで発行します．'};
+E('backend-kind').onchange=()=>{E('backend-discover').disabled=false;E('backend-kind-note').textContent=E('backend-kind').value==='openai'?'OpenAI互換ではモデル単位で振り分けます．':'モデルと対応エンドポイントも登録・確認できます．拡張キーは「APIキー」タブで発行します．'};
 E('backend-reset').onclick=()=>{E('backend-form').reset();E('backend-apikey-clear').onchange();E('backend-kind').onchange();E('backend-id').value='';makeChecks(E('manual-model-endpoints'),CAPS,'manual-',[])};
 
 E('backend-kind').onchange();
