@@ -36,6 +36,9 @@ def route_for(method: str, path: str):
     fixed = {"chat/completions":"chat", "completions":"completions", "responses":"responses", "embeddings":"embeddings", "audio/transcriptions":"audio_transcriptions", "audio/translations":"audio_translations", "audio/speech":"audio_speech", "images/generations":"images_generations", "images/edits":"images_edits", "images/variations":"images_variations", "videos":"videos"}
     if method == "POST" and path in fixed:
         return fixed[path], None
+    # Voice management and Kokoro-FastAPI voice mixing share speech permissions.
+    if path == "audio/voices/combine" and method == "POST":
+        return "audio_speech", None
     # Voice management is a vendor extension of the speech capability.
     if path == "audio/voices" and method in {"GET", "POST"}:
         return "audio_speech", None
