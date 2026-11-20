@@ -77,6 +77,8 @@ section{margin:0;padding:0}.tab-panel{margin:10px 0 0}
 .compact-actions button{padding:4px 8px;font-size:.78rem}
 .compact-table .item-tags{margin:0;gap:4px}
 .compact-table .item-tag{padding:2px 5px;font-size:.74rem}
+/* Non-OpenAI endpoint tags share the same lime highlight in every tab. */
+.item-tag.endpoint-custom{background:#d8ed9c;border-color:#92b84c;color:#25350c}
 .compact-table .status{font-size:.75rem;padding:2px 6px}
 .editor-row{background:var(--subtle)}
 .editor-row>td{padding:0 10px 10px!important}
@@ -145,7 +147,17 @@ function miniTag(value){const e=node('span',value);e.className='item-tag';return
 function itemHead(name,description,badge){const top=node('div');top.className='item-top';const left=node('div');const a=node('div',name);a.className='item-name';const b=node('div',description);b.className='item-sub';left.append(a,b);top.append(left);if(badge)top.append(badge);return top}
 function actionBar(){const e=node('div');e.className='item-actions';return e}
 function actionButton(text,click,cls=''){const b=node('button',text);b.type='button';b.className=cls;b.onclick=click;return b}
-function endpointTags(container,values){const tags=node('div');tags.className='item-tags';for(const ep of values){const t=miniTag(ep.replace(/^\w+\s+\//,''));t.title=ep;tags.append(t)}if(!values.length){const t=node('span','未設定');t.className='item-sub';tags.append(t)}container.append(tags)}
+const STANDARD_ENDPOINTS=new Set(CAPS.map(([endpoint])=>endpoint));
+function dedicatedEndpoints(kind){
+ if(kind==='irodori')return ['POST /v1/audio/speech','GET /v1/audio/voices','POST /v1/audio/voices','GET /v1/audio/voices/{voice_id}','PUT /v1/audio/voices/{voice_id}','DELETE /v1/audio/voices/{voice_id}'];
+ if(kind==='kokoro')return ['POST /v1/audio/speech','GET /v1/audio/voices','POST /v1/audio/voices/combine'];
+ return [];
+}
+function modelEndpoints(model){
+ const backend=state.backends.find(b=>b.id===model.backend_id);
+ return [...new Set([...arr(model.endpoints),...dedicatedEndpoints(backend?.kind)])];
+}
+function endpointTags(container,values){const tags=node('div');tags.className='item-tags';for(const ep of values){const t=miniTag(ep.replace(/^\w+\s+\//,''));t.title=ep;if(!STANDARD_ENDPOINTS.has(ep))t.classList.add('endpoint-custom');tags.append(t)}if(!values.length){const t=node('span','未設定');t.className='item-sub';tags.append(t)}container.append(tags)}
 function modelEditor(m,card){
  const existing=arr(m.endpoints),ed=node('div');ed.className='editor-card';
  const form=node('form');const grid=node('div');grid.className='editor-grid';
@@ -206,9 +218,8 @@ function render(){
   appendCell(tr,b.id+' · '+({'openai':'OpenAI互換','irodori':'Irodori-TTS','kokoro':'Kokoro-TTS'}[b.kind||'openai']),'compact-name');appendCell(tr,b.url,'compact-cell');
   const status=appendCell(tr,'');status.append(statusBadge(b.enabled?'有効':'停止',!!b.enabled));
   const capabilities=appendCell(tr,'','compact-cell');
-  const backendEndpoints=[...new Set([...arr(b.capabilities),...state.models.filter(m=>m.backend_id===b.id).flatMap(m=>arr(m.endpoints))])];
-  if(b.kind==='irodori'||b.kind==='kokoro'){backendEndpoints.push('POST /v1/audio/speech','GET /v1/audio/voices');}
-  endpointTags(capabilities,[...new Set(backendEndpoints)]);
+  const backendEndpoints=[...new Set([...arr(b.capabilities),...state.models.filter(m=>m.backend_id===b.id).flatMap(m=>arr(m.endpoints)),...dedicatedEndpoints(b.kind)])];
+  endpointTags(capabilities,backendEndpoints);
   appendActions(tr,[['編集',()=>appendEditorRow(backendBody,tr,5,cell=>backendEditor(b,cell))],['削除',()=>{if(confirm(b.id+' を削除しますか？ 所属モデルも削除されます．'))act(()=>api('backends/'+encodeURIComponent(b.id),'DELETE'))},'danger']]);
   backendBody.append(tr);
  }
@@ -228,7 +239,7 @@ function render(){
   appendCell(tr,m.backend_id);
   const stat=appendCell(tr,'');stat.append(statusBadge(m.published?'公開':'非公開',!!m.published));
   const stateInfo=node('div',m.manual?'手動登録':m.seen?'検出済':'現在未検出');stateInfo.className='compact-secondary';stat.append(stateInfo);
-  const ep=appendCell(tr,'','compact-cell');endpointTags(ep,arr(m.endpoints));
+  const ep=appendCell(tr,'','compact-cell');endpointTags(ep,modelEndpoints(m));
   appendActions(tr,[['編集',()=>appendEditorRow(modelBody,tr,5,cell=>modelEditor(m,cell))],
   [m.hidden?'表示':'非表示',()=>act(()=>api('models','PATCH',{backend_id:m.backend_id,upstream_id:m.upstream_id,hidden:!m.hidden}),m.hidden?'表示しました':'非表示にしました')],
   ['削除',()=>{const msg=m.manual?' を削除しますか？':' を削除しますか？ 再取得すれば復元できます（非公開・エンドポイント未設定）．';if(confirm(m.public_id+msg))act(()=>api('models','DELETE',{backend_id:m.backend_id,upstream_id:m.upstream_id}),'モデルを削除しました')},'danger']]);

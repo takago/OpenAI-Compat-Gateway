@@ -58,3 +58,18 @@ def test_dedicated_key_form_shows_backend_model_names():
     assert "E('key-backend').onchange=updateDedicatedModels" in html
     assert "state.models.filter(m=>m.backend_id===b.id)" in html
     assert 'const backendEndpoints=' in html
+
+
+def test_dedicated_endpoints_are_consistent_across_backend_and_model_tabs():
+    page = HTML.read_text(encoding="utf-8")
+    assert "function dedicatedEndpoints(kind)" in page
+    assert "function modelEndpoints(model)" in page
+    assert "...dedicatedEndpoints(b.kind)" in page
+    assert "endpointTags(ep,modelEndpoints(m))" in page
+    assert "GET /v1/audio/voices" in page
+    assert "POST /v1/audio/voices/combine" in page
+
+def test_nonstandard_endpoint_tags_have_lime_background():
+    page = HTML.read_text(encoding="utf-8")
+    assert ".item-tag.endpoint-custom{background:#d8ed9c" in page
+    assert "if(!STANDARD_ENDPOINTS.has(ep))t.classList.add('endpoint-custom')" in page
