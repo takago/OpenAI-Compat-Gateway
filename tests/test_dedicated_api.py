@@ -36,7 +36,7 @@ async def test_dedicated_irodori_and_kokoro_same_paths(tmp_path, monkeypatch):
                 assert r.status_code==200,r.text
                 assert 'key' not in r.json()
                 keys[bid]=(await client.post('/admin/api/keys',headers=admin,json={'name':'key-'+bid,'backend_id':bid})).json()['key']
-                assert r.json()['discovery']['status']=='skipped'
+                assert r.json()['discovery']['status']=='ok'
             state=(await client.get('/admin/api/state')).json()
             assert not any('dedicated_key_hash' in b for b in state['backends'])
             for bid in keys:

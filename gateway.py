@@ -137,8 +137,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
         return os.getenv(env) if env else None
 
     async def refresh_one(row, force=False):
-        if row.get("kind", "openai") != "openai":
-            return {"backend": row["id"], "status": "skipped", "message": "Dedicated API"}
         if not row["enabled"]:
             return {"backend": row["id"], "status": "skipped", "message": "Disabled"}
         if not force and cached.get(row["id"],0) > time.monotonic():
@@ -399,7 +397,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         with store.db() as db:
             current=db.execute("SELECT kind FROM backends WHERE id=?",(bid,)).fetchone()
             old_kind=current["kind"] if current is not None else None
-            discover_enabled=int(bool(data.get("discover",True))) if kind=="openai" else 0
+            discover_enabled=int(bool(data.get("discover",True)))
             db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,kind,dedicated_key_hash)
                 VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET
                 url=excluded.url,capabilities=excluded.capabilities,
@@ -447,8 +445,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 backend_row=db.execute("SELECT kind FROM backends WHERE id=?", (bid,)).fetchone()
                 if backend_row is None:
                     raise HTTPException(404, "Backend not found")
-                if backend_row["kind"] != "openai":
-                    raise HTTPException(400, "Dedicated API backends do not use model registration")
                 db.execute("""INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual,endpoints)
                               VALUES(?,?,?,?,1,1,?)""",
                            (bid, upstream, public, int(bool(data.get("published", False))),json.dumps(endpoints)))

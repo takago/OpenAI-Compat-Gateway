@@ -56,7 +56,7 @@ If the upstream requires authentication, configure its key in the backend settin
 Open the **API Keys** tab and click **Issue** (Add):
 
 - **OpenAI-compatible:** choose the allowed endpoints and models, as before.
-- **Dedicated API:** select exactly one registered Irodori-TTS or Kokoro-TTS backend. Multiple backends can each have their own client key.
+- **Dedicated API:** select exactly one registered Irodori-TTS or Kokoro-TTS backend. The key form also displays the model names registered for that backend. Multiple backends can each have their own client key.
 
 Key expiration, enabled status, rotation, and deletion are all managed under **API Keys**. Only the key hash is stored, so **copy the full secret when issued or rotated**; it cannot be displayed again later.
 
@@ -135,3 +135,5 @@ Thanks to **Aratako** for developing [Irodori-TTS-Server](https://github.com/Ara
 ## License
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
+
+Model lists and supported endpoints remain visible and editable for all backend types. For Irodori-TTS and Kokoro-TTS, they are administrative metadata; dedicated-key requests are still routed using the API key. Auto-discovery requires upstream `/v1/models` support, while manual model entries can always be added.

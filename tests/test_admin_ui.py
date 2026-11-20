@@ -48,3 +48,13 @@ def test_ui_uses_list_and_edit_separation():
     assert "公開・モデル名をまとめて保存" not in page
     assert "接続診断" not in page
     assert "diagnose_backend" not in (HTML.parent / "gateway.py").read_text(encoding="utf-8")
+
+
+def test_dedicated_key_form_shows_backend_model_names():
+    from pathlib import Path
+    html=(Path(__file__).resolve().parents[1] / "admin.html").read_text()
+    assert 'id="key-backend-models"' in html
+    assert 'function updateDedicatedModels()' in html
+    assert "E('key-backend').onchange=updateDedicatedModels" in html
+    assert "state.models.filter(m=>m.backend_id===b.id)" in html
+    assert 'const backendEndpoints=' in html
