@@ -1,10 +1,24 @@
 # OpenAI-Compat-Gateway
 
-A lightweight, self-hosted gateway that unifies OpenAI-compatible API servers across multiple PCs behind a single `/v1` endpoint. Developed by **TAKAGO LAB**, Kanazawa Institute of Technology. Not affiliated with OpenAI.
+A lightweight, self-hosted gateway for accessing OpenAI-compatible API servers running on multiple PCs through a single `/v1` endpoint. Issue client API keys and control which models and endpoints each key can use.
 
-## One-command installation
+Developed by TAKAGO LAB, Kanazawa Institute of Technology. Not affiliated with OpenAI.
 
-For Linux with systemd, Python 3/venv/pip and Git:
+[日本語README](README.ja.md)
+
+## Features
+
+- Combine multiple upstream servers under one API base URL
+- Set public model aliases, publication state, and supported endpoints per model
+- Issue client API keys with model/endpoint permissions and expiration dates
+- Forward OpenAI-compatible chat, Responses, embeddings, images, audio, and video APIs
+- Forward SSE streams, multipart uploads, and extra JSON parameters
+- Support Irodori-TTS-Server speech generation and voice management
+- Configure and monitor the gateway, and back up or restore configuration, in a web dashboard
+
+## Installation
+
+Requires Linux with Python 3, venv, pip, Git, and systemd. Install `python3-venv` if needed.
 
 ```bash
 git clone https://github.com/takago/OpenAI-Compat-Gateway.git
@@ -12,13 +26,29 @@ cd OpenAI-Compat-Gateway
 sudo ./install.sh
 ```
 
-This creates a non-login system user `openai-gateway`, installs the application in `/opt/openai-compat-gateway`, and registers a **system-level** systemd service that runs as that user. No `.env`, `config.json`, initial API key, manual administrator password hash, or session secret is required.
+The installer creates a dedicated non-login system user, `openai-gateway`, deploys the application to `/opt/openai-compat-gateway`, and starts a system-level systemd service. You do not need to prepare `.env`, `config.json`, or an initial API key.
 
-Open `/admin` (over HTTPS via Caddy, or `http://127.0.0.1:8765/admin` locally), set a 12+ character administrator password, and sign in. Add upstream `/v1` endpoints via the dashboard, discover and publish models, then issue client API keys with service/model permissions and expiration dates. Backend API keys may be entered in the dashboard.
+## First-time setup
 
-**First-run security warning:** The first visitor to `/admin` can register the administrator without source-IP restrictions. Complete setup immediately and do not expose the uninitialized service publicly. Use HTTPS for remote administration. Backend secrets are saved in owner-restricted SQLite but are **not encrypted at rest**.
+1. On the gateway host, open `http://127.0.0.1:8765/admin`.
+2. Create an administrator password (at least 12 characters) and sign in.
+3. Under **Backends**, add each upstream server's `/v1` URL and optional API key.
+4. Under **Models**, discover models or add them manually. Use **Edit** to configure the public model ID, publication status, and supported endpoints.
+5. Under **API Keys**, issue a client key and assign allowed models, endpoints, and expiration.
 
-## Caddy
+**Security:** The first visitor to `/admin` can register the administrator. Finish initial setup before exposing the service publicly. Use HTTPS for remote administration.
+
+### Dashboard behavior
+
+- Newly discovered models are **unpublished and have no enabled endpoints** until configured.
+- **Hide** affects only the admin list; it does not unpublish a model.
+- **Delete** removes a model registration. Discovered models can be restored by refreshing the upstream model list (initially unpublished with no endpoints). Manually added models must be manually re-added.
+- Backends without `/v1/models` can still use manually registered models.
+- Client API key secrets are shown only at issuance or rotation.
+
+## Connecting clients
+
+Example Caddy reverse proxy:
 
 ```caddyfile
 ai.example.com {
@@ -26,9 +56,60 @@ ai.example.com {
 }
 ```
 
-API base URL: `https://ai.example.com/v1`; management page: `https://ai.example.com/admin`.
+- API base URL: `https://ai.example.com/v1`
+- Dashboard: `https://ai.example.com/admin`
 
-## Operations
+List published models:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  https://ai.example.com/v1/models
+```
+
+For API requests, provide the configured **public model ID** in `model`. The gateway selects the appropriate backend.
+
+## Irodori-TTS-Server integration
+
+To use [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server):
+
+1. Under **Backends**, add the Irodori `/v1` URL (for example, `http://192.168.1.20:8088/v1`).
+2. Under **Models**, discover or manually add upstream model `irodori-tts`, and choose a public alias (for example, `irodori-public`).
+3. Publish that model and enable **`POST /v1/audio/speech`**.
+4. Grant your client key permission to use the model and the speech endpoint.
+
+Example speech request:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"irodori-public","input":"Hello","voice":"none","response_format":"wav","irodori":{"caption":"A calm voice"}}' \
+  https://ai.example.com/v1/audio/speech --output speech.wav
+```
+
+The gateway forwards `voice`, `speed`, `response_format`, `stream_format`, and Irodori-specific options without interpreting them. Audio bytes and SSE streaming are supported. File paths such as `irodori.ref_wav` refer to files on the **upstream Irodori server**.
+
+### Voice listing and management
+
+The gateway also forwards these Irodori-specific endpoints:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/v1/audio/voices` | List voices |
+| POST | `/v1/audio/voices` | Upload a voice |
+| GET | `/v1/audio/voices/{voice_id}` | Get voice metadata |
+| PUT | `/v1/audio/voices/{voice_id}` | Replace a voice |
+| DELETE | `/v1/audio/voices/{voice_id}` | Delete a voice |
+
+When more than one speech backend is eligible, select the public model with `?model=...`. Omit the selector if only one backend is eligible.
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  'https://ai.example.com/v1/audio/voices?model=irodori-public'
+```
+
+**Permissions:** All voice-management operations, including uploads and deletion, use the same `audio_speech` permission as speech generation. Be careful when issuing client keys. `GET /v1/audio/voices` is an Irodori extension, not a standard OpenAI endpoint.
+
+## Operations and updates
 
 ```bash
 sudo systemctl status openai-compat-gateway
@@ -36,87 +117,17 @@ sudo journalctl -u openai-compat-gateway -f
 sudo systemctl restart openai-compat-gateway
 ```
 
-To update, `git pull` in your local clone and rerun `sudo ./install.sh`. Persistent data is stored in `/var/lib/openai-compat-gateway/gateway.sqlite3` and is preserved by reinstallations. Back it up before upgrades.
+To update, run `git pull` in your clone and rerun `sudo ./install.sh`. Persistent configuration lives at `/var/lib/openai-compat-gateway/gateway.sqlite3`; reinstalling preserves it. Back it up before updating.
 
-Features include unified `/v1/models`, per-key ACL and expiration, SSE streaming, passthrough JSON `extra_body`, multipart upload forwarding, and persistent asynchronous video job mapping. Newly discovered models remain unpublished until an administrator enables them.
+The **Usage** tab provides configuration backup and restore. Restoring requires the administrator password and a service restart. Backups contain upstream credentials and must be protected.
 
-MIT License. Copyright (c) 2026 TAKAGO LAB.
+### Security notes
 
-## Administration and model-centric routing (v0.4.0)
+- Use HTTPS for remote administration.
+- Upstream secrets are stored in access-restricted SQLite but are **not encrypted at rest**.
+- HTTPS certificate verification remains enabled; the gateway refers to `/etc/ssl/certs/ca-certificates.crt` for CA certificates.
+- Check per-model endpoints and client key permissions before publishing models.
 
-The dashboard has four tabs: Backends, Models, API Keys, Usage.
-
-- **Backends:** Register a `/v1` URL and optional upstream API key. Capabilities are *derived* from the endpoints configured on models attached to that backend. Model discovery via `GET /v1/models` is optional. A missing `/v1/models` endpoint does not prevent manual model registration.
-- **Models:** Auto-discover or manually add a model; configure its public alias, published state, and supported endpoints as explicit `POST /v1/...` selections. Newly discovered models default to unpublished with no endpoints. Hide/show only affects the admin list. Unpublishing blocks API use and removes it from `/v1/models`. Deletion removes the registration. Refreshing the model list restores deleted discovered models that remain on the upstream server, initially unpublished and with no enabled endpoints. Manually added models must be re-added manually.
-- **API Keys:** Generate time-limited tokens, constrain exact endpoints and models, revoke, rotate or delete. Secrets are only shown when issued/rotated.
-- **Usage:** View request statistics and export/restore the SQLite configuration. Restore requires the current administrator password and service restart. **Backups contain upstream secrets; handle them as sensitive.**
-
-Model endpoint permissions are applied at routing time, including for SSE streaming and multipart image/audio requests. Video job read/delete is protected by the video endpoint permission and the owning API key. Legacy stored capabilities are migrated in-place to endpoint identifiers; back up the SQLite database before updating.
-
-To create a consistent backup before installing a version with database schema changes:
-
-```bash
-sudo systemctl stop openai-compat-gateway
-sudo install -m 600 /var/lib/openai-compat-gateway/gateway.sqlite3 \
-  /var/lib/openai-compat-gateway/gateway.sqlite3.pre-v0.4.0
-sudo systemctl start openai-compat-gateway
-```
-
-## HTTPS certificate trust
-
-`gateway.py` configures `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to `/etc/ssl/certs/ca-certificates.crt` as requested for the deployment environment. HTTPS certificate verification stays enabled; this does not automatically fix an incomplete certificate chain.
+## License
 
 MIT License. Copyright (c) 2026 TAKAGO LAB.
-
-## v0.4.4: Model endpoint editor
-
-The model table shows only configured endpoints as compact labels such as `v1/chat/completions`. Click **Edit** on an individual model to choose its endpoints with checkboxes; **Save** applies the change and **Cancel** discards it.
-
-Newly discovered models begin with **no endpoint assignments**. The gateway does not infer model capabilities. Existing model endpoint assignments are preserved across upgrades. Bulk editing of public model IDs and publication state remains available.
-
-### Deleting and rediscovering models
-
-Deleting an automatically discovered model removes only its gateway registration. Refreshing `/v1/models` restores it if the upstream still lists it, initially unpublished, visible, and with no enabled endpoints. Manually added models are not automatically restored. Existing model settings remain unchanged. The Edit action sits in the endpoint column.
-
-## Administration UI (v0.5.0)
-
-The four tabs are Backends, Models, API Keys, and Usage. Lists are read-only summaries; use **Edit** on an individual item for a single Save/Cancel form. Model editing combines public model ID, visibility to API clients (publication), and endpoint permissions. Hide affects only the admin list, while Delete removes the gateway registration. Models can be discovered again if their upstream `/v1/models` reports them. Model search and backend filtering are available. Existing API and database formats remain unchanged.
-
-## Compact administration UI (v0.5.1)
-
-The admin interface uses compact tables on desktop for backends, models, and API keys. Search, filters, and actions share one toolbar. Select **Edit** to expand a row-level form. On narrow screens, tables can be scrolled horizontally. Existing API routes and database records are unchanged.
-
-
-## Irodori-TTS-Server integration
-
-Register [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server) as a backend at `http://<host>:8088/v1`. Discover or manually register the upstream `irodori-tts` model, publish it, and enable **`POST /v1/audio/speech`** for that model. Grant the client's API key access to its public model ID and the `audio_speech` capability.
-
-Speech requests forward `voice`, `speed`, `response_format`, `stream_format`, and the whole `irodori` options object unchanged; only the public model alias is rewritten. Binary audio and chunk-level SSE (`audio_chunk`, `done`) responses are streamed through.
-
-The following Irodori voice-management extensions are supported, with `audio_speech` permissions for **both reads and writes**:
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/v1/audio/voices` | List voices |
-| POST | `/v1/audio/voices` | Upload voice (multipart) |
-| GET | `/v1/audio/voices/{voice_id}` | Voice metadata |
-| PUT | `/v1/audio/voices/{voice_id}` | Replace voice (multipart) |
-| DELETE | `/v1/audio/voices/{voice_id}` | Delete voice |
-
-When an API key can use multiple speech backends, specify the public model alias as a `?model=<public-model-id>` query parameter on a voice-management request. The selector is stripped before forwarding. Multiple published models on the same backend do not require a selector. Remember that authorizing `audio_speech` also allows upload, replacement and deletion of reference voices.
-
-```bash
-curl -H "Authorization: Bearer $API_KEY" \
-  'https://gateway.example/v1/audio/voices?model=irodori-public'
-
-curl -H "Authorization: Bearer $API_KEY" \
-  -F 'voice_id=sample' -F 'file=@sample.wav' \
-  'https://gateway.example/v1/audio/voices?model=irodori-public'
-
-curl -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"irodori-public","input":"Hello","voice":"none","response_format":"wav","irodori":{"caption":"A calm voice"}}' \
-  https://gateway.example/v1/audio/speech --output speech.wav
-```
-
-Reference paths in `irodori.ref_wav` etc. are resolved by the upstream Irodori server, not on the gateway or client.
