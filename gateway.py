@@ -16,13 +16,13 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import quote, parse_qsl, urlencode
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
-from management import CAPABILITIES, Store, password_check, validate_url
+from management import CAPABILITIES, Store, password_check, validate_url, hash_key
 from endpoints import ROUTES, ENDPOINTS, normalize
 
 LOG = logging.getLogger("compat_gateway")
@@ -36,11 +36,6 @@ def route_for(method: str, path: str):
     fixed = {"chat/completions":"chat", "completions":"completions", "responses":"responses", "embeddings":"embeddings", "audio/transcriptions":"audio_transcriptions", "audio/translations":"audio_translations", "audio/speech":"audio_speech", "images/generations":"images_generations", "images/edits":"images_edits", "images/variations":"images_variations", "videos":"videos"}
     if method == "POST" and path in fixed:
         return fixed[path], None
-    # Voice management is a vendor extension of the speech capability.
-    if path == "audio/voices" and method in {"GET", "POST"}:
-        return "audio_speech", None
-    if re.fullmatch(r"audio/voices/[A-Za-z0-9_-]{1,128}", path) and method in {"GET", "PUT", "DELETE"}:
-        return "audio_speech", None
     m = re.fullmatch(r"videos/([^/]+)(?:/(content|remix))?", path)
     if m and (method in {"GET", "DELETE"} or (method == "POST" and m.group(2) == "remix")):
         return "videos", m.group(1)
@@ -142,6 +137,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         return os.getenv(env) if env else None
 
     async def refresh_one(row, force=False):
+        if row.get("kind", "openai") != "openai":
+            return {"backend": row["id"], "status": "skipped", "message": "Dedicated API"}
         if not row["enabled"]:
             return {"backend": row["id"], "status": "skipped", "message": "Disabled"}
         if not force and cached.get(row["id"],0) > time.monotonic():
@@ -169,7 +166,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def public_models(key):
         result=[]
         for m in store.models():
-            if m["published"] and m["seen"] and m["backend_enabled"]:
+            if m["published"] and m["seen"] and m["backend_enabled"] and m.get("backend_kind", "openai") == "openai":
                 caps=json.loads(m["endpoints"])
                 if any(store.allowed(key,cap,m["public_id"]) for cap in caps):
                     result.append({"id":m["public_id"],"object":"model","created":0,"owned_by":m["backend_id"]})
@@ -185,8 +182,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
         auth=request.headers.get("authorization", "")
         if not auth.lower().startswith("bearer "):
             return JSONResponse({"error":{"message":"Unauthorized"}},status_code=401,headers={"WWW-Authenticate":"Bearer"})
-        key=store.key_for(auth[7:])
-        if key is None:
+        secret=auth[7:].strip()
+        dedicated=store.dedicated_backend_for(secret)
+        if dedicated is not None:
+            request.state.dedicated_backend=dedicated
+            request.state.key=None
+        else:
+            request.state.dedicated_backend=None
+        key=None if dedicated is not None else store.key_for(secret)
+        if key is None and dedicated is None:
             return JSONResponse({"error":{"message":"Unauthorized"}},status_code=401,headers={"WWW-Authenticate":"Bearer"})
         request.state.key=key
         length=request.headers.get("content-length")
@@ -203,6 +207,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.get("/v1/models")
     async def models_api(request: Request):
+        if getattr(request.state, "dedicated_backend", None) is not None:
+            return await proxy("models", request)
         await refresh_all()
         return {"object":"list","data":public_models(request.state.key)}
 
@@ -211,24 +217,22 @@ def create_app(config_path: str | None = None) -> FastAPI:
         start=time.monotonic()
         key=request.state.key
         method=request.method
-        cap, video_id = route_for(method,path)
+        dedicated=getattr(request.state, "dedicated_backend", None)
+        if dedicated is None:
+            cap, video_id = route_for(method,path)
+        else:
+            cap, video_id = "dedicated_" + dedicated["kind"], None
         body=await request.body()
         if len(body)>max_upload:
             raise HTTPException(413,"Request too large")
         content_type=request.headers.get("content-type","")
-        voice_management = path == "audio/voices" or path.startswith("audio/voices/")
-        # A model selector is accepted only for voice operations, which have no
-        # model field in their multipart/GET/DELETE API. Never forward it.
-        query_items = parse_qsl(request.url.query, keep_blank_values=True)
-        model_params = [value for name, value in query_items if name == "model"]
-        if voice_management and len(model_params) > 1:
-            raise HTTPException(400, "Specify model only once")
-        model = (model_params[0] if model_params else None) if voice_management else (
-            extract_model(content_type, body) if not video_id else None)
-        if voice_management and model == "":
-            raise HTTPException(400, "Invalid model selector")
+        model = None if dedicated is not None or video_id else extract_model(content_type, body)
         upstream_id=None
-        if video_id:
+        if dedicated is not None:
+            # Dedicated credentials determine the destination for *all* /v1 paths.
+            # Do not rewrite model, voice, body or query parameters.
+            backend=dedicated
+        elif video_id:
             with store.db() as db:
                 job=db.execute("SELECT * FROM video_jobs WHERE public_id=?",(video_id,)).fetchone()
             if job is None:
@@ -249,7 +253,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             await refresh_all()
             candidates=[]
             for m in store.models():
-                if m["published"] and m["seen"] and m["backend_enabled"] and ROUTES[cap] in json.loads(m["endpoints"]):
+                if m["published"] and m["seen"] and m["backend_enabled"] and m.get("backend_kind", "openai") == "openai" and ROUTES[cap] in json.loads(m["endpoints"]):
                     if model is None or m["public_id"]==model:
                         candidates.append(m)
             if model is not None:
@@ -261,37 +265,28 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 candidates=[m for m in candidates if store.allowed(key,cap,m["public_id"])]
                 if not candidates:
                     raise HTTPException(403,"Capability not permitted")
-            # Several public model names may intentionally share one speech
-            # backend. Voice endpoints address a backend, not a model.
-            if voice_management and model is None:
-                by_backend = {m["backend_id"]: m for m in candidates}
-                candidates = list(by_backend.values())
             if len(candidates)!=1:
                 raise HTTPException(400,"Specify a model to select a backend")
             selected=candidates[0]
             upstream_id=selected["upstream_id"]
             backend=next(b for b in store.backends() if b["id"]==selected["backend_id"])
-            if model is not None and not voice_management:
+            if model is not None:
                 body=replace_model(content_type,body,model,upstream_id)
         headers={k:v for k,v in request.headers.items() if k.lower() not in HOP | {"authorization","x-api-key","cookie","accept-encoding"}}
         if upstream_key(backend):
             headers["authorization"]="Bearer "+upstream_key(backend)
         headers["accept-encoding"]="identity"
         url=backend["url"]+"/"+path
-        if voice_management:
-            forward_query = [(name, value) for name, value in query_items if name != "model"]
-            if forward_query:
-                url += "?" + urlencode(forward_query)
-        elif request.url.query:
+        if request.url.query:
             url += "?" + request.url.query
         try:
-            req=app.state.client.build_request(method,url,content=body if method not in {"GET","DELETE"} else None,headers=headers)
+            req=app.state.client.build_request(method,url,content=body if body else None,headers=headers)
             upstream=await app.state.client.send(req,stream=True)
         except httpx.HTTPError as exc:
-            store.log(key["id"],cap,model,502,int((time.monotonic()-start)*1000))
+            store.log(key["id"],cap,model,502,int((time.monotonic()-start)*1000)) if key is not None else None
             LOG.warning("Upstream %s failed: %s",backend["id"],exc)
             raise HTTPException(502,"Upstream unavailable") from exc
-        store.log(key["id"],cap,model,upstream.status_code,int((time.monotonic()-start)*1000))
+        store.log(key["id"],cap,model,upstream.status_code,int((time.monotonic()-start)*1000)) if key is not None else None
         resp_headers={k:v for k,v in upstream.headers.items() if k.lower() in RETURN_HEADERS}
         if cap=="videos" and upstream.is_success and ((method=="POST" and (video_id is None or path.endswith("/remix"))) or (method=="GET" and video_id is not None and not path.endswith("/content"))):
             try:
@@ -368,7 +363,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def admin_state(request:Request):
         admin_guard(request)
         token=request.cookies.get("ocg_session","")
-        return {"csrf":session_csrf(session_secret,token),"endpoints":sorted(ENDPOINTS),"backends":[{k:v for k,v in b.items() if k != "api_key"} for b in store.backends()],"models":store.models(),"keys":store.keys(),"metrics":store.metrics()}
+        return {"csrf":session_csrf(session_secret,token),"endpoints":sorted(ENDPOINTS),"backends":[{k:v for k,v in b.items() if k not in {"api_key", "dedicated_key_hash"}} for b in store.backends()],"models":store.models(),"keys":store.keys(),"metrics":store.metrics()}
 
     @app.post("/admin/api/logout")
     async def logout(request:Request):
@@ -395,21 +390,44 @@ def create_app(config_path: str | None = None) -> FastAPI:
             url=validate_url(data["url"])
         except (ValueError,KeyError) as exc:
             raise HTTPException(400,str(exc))
-        # API capabilities belong to individual models, never to backends.
-        caps=[]
+        kind=data.get("kind", "openai")
+        if kind not in {"openai", "irodori", "kokoro"}:
+            raise HTTPException(400, "Invalid backend kind")
         direct_key=data.get("api_key", "")
         if not isinstance(direct_key,str) or len(direct_key)>4096:
             raise HTTPException(400,"Invalid backend API key")
+        issued=None
         with store.db() as db:
-            db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key)
-                VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+            current=db.execute("SELECT kind,dedicated_key_hash FROM backends WHERE id=?",(bid,)).fetchone()
+            if current is not None and current["kind"] != kind:
+                raise HTTPException(409, "Backend kind cannot be changed; create a new backend instead")
+            if kind != "openai" and (current is None or not current["dedicated_key_hash"]):
+                issued="ocg_" + secrets.token_urlsafe(32)
+            db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,kind,dedicated_key_hash)
+                VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                 url=excluded.url,capabilities=excluded.capabilities,
                 key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,
                 api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END""",
-                (bid,url,json.dumps(caps),None,int(bool(data.get("enabled",True))),int(bool(data.get("discover",True))),direct_key))
+                (bid,url,json.dumps([]),None,int(bool(data.get("enabled",True))),
+                 int(bool(data.get("discover",True))) if kind=="openai" else 0,direct_key,kind,
+                 hash_key(issued) if issued else None))
         cached.pop(bid,None)
         result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
-        return {"ok":True, "discovery":result}
+        response={"ok":True,"discovery":result}
+        if issued:
+            response["key"]=issued
+        return response
+
+    @app.post("/admin/api/backends/{backend_id}/rotate-key")
+    async def rotate_dedicated_key(backend_id: str, request: Request):
+        admin_guard(request, True)
+        token="ocg_"+secrets.token_urlsafe(32)
+        with store.db() as db:
+            result=db.execute("""UPDATE backends SET dedicated_key_hash=?
+                WHERE id=? AND kind IN ('irodori','kokoro')""",(hash_key(token),backend_id))
+            if not result.rowcount:
+                raise HTTPException(404,"Dedicated backend not found")
+        return {"key":token,"message":"Previous dedicated key revoked"}
 
     @app.delete("/admin/api/backends/{backend_id}")
     async def remove_backend(backend_id:str,request:Request):
@@ -438,8 +456,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(400, str(exc))
         try:
             with store.db() as db:
-                if db.execute("SELECT 1 FROM backends WHERE id=?", (bid,)).fetchone() is None:
+                backend_row=db.execute("SELECT kind FROM backends WHERE id=?", (bid,)).fetchone()
+                if backend_row is None:
                     raise HTTPException(404, "Backend not found")
+                if backend_row["kind"] != "openai":
+                    raise HTTPException(400, "Dedicated API backends do not use model registration")
                 db.execute("""INSERT INTO models(backend_id,upstream_id,public_id,published,seen,manual,endpoints)
                               VALUES(?,?,?,?,1,1,?)""",
                            (bid, upstream, public, int(bool(data.get("published", False))),json.dumps(endpoints)))

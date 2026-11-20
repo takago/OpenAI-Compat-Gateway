@@ -1,24 +1,27 @@
 # OpenAI-Compat-Gateway
 
-A lightweight, self-hosted gateway for accessing OpenAI-compatible API servers running on multiple PCs through a single `/v1` endpoint. Issue client API keys and control which models and endpoints each key can use.
+A self-hosted gateway for **OpenAI-compatible APIs** and dedicated **Irodori-TTS-Server / Kokoro-FastAPI** backends. One gateway URL, with two simple routing rules: normal API keys select an OpenAI-compatible model; a dedicated TTS key selects exactly one backend.
+
+[日本語版 README](README.ja.md)
 
 Developed by TAKAGO LAB, Kanazawa Institute of Technology. Not affiliated with OpenAI.
 
-[日本語README](README.ja.md)
-
 ## Features
 
-- Combine multiple upstream servers under one API base URL
-- Set public model aliases, publication state, and supported endpoints per model
-- Issue client API keys with model/endpoint permissions and expiration dates
-- Forward OpenAI-compatible chat, Responses, embeddings, images, audio, and video APIs
-- Forward SSE streams, multipart uploads, and extra JSON parameters
-- Support Irodori-TTS-Server speech generation and voice management
-- Configure and monitor the gateway, and back up or restore configuration, in a web dashboard
+- **OpenAI-compatible:** existing model aliases, endpoint permissions, model discovery, regular API keys, and chat / images / audio / video forwarding remain supported.
+- **Irodori-TTS / Kokoro-TTS:** each registered backend automatically gets **its own dedicated API key**. The key selects the backend; the gateway forwards the original `/v1/...` method, path, query, JSON or multipart body, and streaming response without rewriting `model` or `voice`.
+- The admin UI manages backend registration and regular API keys. Configuration and key hashes live in SQLite.
+- A dedicated key never authorizes another backend. A regular key never authorizes a dedicated backend.
 
-## Installation
+| Backend type in the UI | Key management | Routing |
+|---|---|---|
+| OpenAI-compatible | Regular API key (model / endpoint permissions) | Request `model` |
+| Irodori-TTS | Automatically generated per-backend key | API key |
+| Kokoro-TTS | Automatically generated per-backend key | API key |
 
-Requires Linux with Python 3, venv, pip, Git, and systemd. Install `python3-venv` if needed.
+## Install and open the dashboard
+
+Linux, Python 3, and systemd are required.
 
 ```bash
 git clone https://github.com/takago/OpenAI-Compat-Gateway.git
@@ -26,29 +29,9 @@ cd OpenAI-Compat-Gateway
 sudo ./install.sh
 ```
 
-The installer creates a dedicated non-login system user, `openai-gateway`, deploys the application to `/opt/openai-compat-gateway`, and starts a system-level systemd service. You do not need to prepare `.env`, `config.json`, or an initial API key.
+Open `http://127.0.0.1:8765/admin`, create an administrator password (12+ characters), and sign in. Complete first-time setup **before** exposing the gateway to the network. Use HTTPS for remote access.
 
-## First-time setup
-
-1. On the gateway host, open `http://127.0.0.1:8765/admin`.
-2. Create an administrator password (at least 12 characters) and sign in.
-3. Under **Backends**, add each upstream server's `/v1` URL and optional API key.
-4. Under **Models**, discover models or add them manually. Use **Edit** to configure the public model ID, publication status, and supported endpoints.
-5. Under **API Keys**, issue a client key and assign allowed models, endpoints, and expiration.
-
-**Security:** The first visitor to `/admin` can register the administrator. Finish initial setup before exposing the service publicly. Use HTTPS for remote administration.
-
-### Dashboard behavior
-
-- Newly discovered models are **unpublished and have no enabled endpoints** until configured.
-- **Hide** affects only the admin list; it does not unpublish a model.
-- **Delete** removes a model registration. Discovered models can be restored by refreshing the upstream model list (initially unpublished with no endpoints). Manually added models must be manually re-added.
-- Backends without `/v1/models` can still use manually registered models.
-- Client API key secrets are shown only at issuance or rotation.
-
-## Connecting clients
-
-Example Caddy reverse proxy:
+A possible reverse proxy configuration:
 
 ```caddyfile
 ai.example.com {
@@ -56,60 +39,72 @@ ai.example.com {
 }
 ```
 
-- API base URL: `https://ai.example.com/v1`
-- Dashboard: `https://ai.example.com/admin`
+Your API base URL is then `https://ai.example.com/v1`; the dashboard is at `/admin`.
 
-List published models:
+## Register a backend
+
+In **Backends → Add**, enter a backend ID, its API URL ending in `/v1`, and select a type from the dropdown:
+
+- **OpenAI-compatible:** keep the existing model discovery / manual registration workflow. Publish models and choose supported endpoints under **Models**. Create regular keys under **API Keys** and assign model / endpoint permissions.
+- **Irodori-TTS:** enter the Irodori-TTS-Server `/v1` URL (for example `http://192.168.1.20:8088/v1`). A dedicated API key is generated automatically. Copy it when it appears.
+- **Kokoro-TTS:** enter the Kokoro-FastAPI `/v1` URL (often `http://192.168.1.21:8880/v1`). Its own dedicated key is generated separately.
+
+Backend API keys (if the upstream requires one) can be entered in the backend's **Upstream API key** field; they are different from keys issued by the gateway to its clients.
+
+**Keys:** only SHA-256 hashes of gateway-issued keys are stored. Copy the full key when issued; it cannot be shown again. **Edit → Regenerate dedicated key** revokes the old dedicated key and displays a replacement. Deleting or disabling a dedicated backend disables access through its key. Existing regular keys and expiration / permission settings are unchanged.
+
+Backend types are fixed after creation. To replace an older OpenAI-compatible registration with a dedicated type, register a new backend ID and configure its new key before removing the old registration.
+
+## Use the API
+
+### OpenAI-compatible (regular key)
+
+Use the published model ID, as before:
 
 ```bash
-curl -H "Authorization: Bearer $API_KEY" \
-  https://ai.example.com/v1/models
-```
-
-For API requests, provide the configured **public model ID** in `model`. The gateway selects the appropriate backend.
-
-## Irodori-TTS-Server integration
-
-To use [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server):
-
-1. Under **Backends**, add the Irodori `/v1` URL (for example, `http://192.168.1.20:8088/v1`).
-2. Under **Models**, discover or manually add upstream model `irodori-tts`, and choose a public alias (for example, `irodori-public`).
-3. Publish that model and enable **`POST /v1/audio/speech`**.
-4. Grant your client key permission to use the model and the speech endpoint.
-
-Example speech request:
-
-```bash
-curl -H "Authorization: Bearer $API_KEY" \
+curl https://ai.example.com/v1/chat/completions \
+  -H "Authorization: Bearer $REGULAR_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"irodori-public","input":"Hello","voice":"none","response_format":"wav","irodori":{"caption":"A calm voice"}}' \
-  https://ai.example.com/v1/audio/speech --output speech.wav
+  -d '{"model":"my-chat-model","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-The gateway forwards `voice`, `speed`, `response_format`, `stream_format`, and Irodori-specific options without interpreting them. Audio bytes and SSE streaming are supported. File paths such as `irodori.ref_wav` refer to files on the **upstream Irodori server**.
+OpenAI-compatible speech generation continues to use the `model` field and a **regular** key. Voice-listing / voice-management endpoints are *not* part of the standard OpenAI-compatible profile.
 
-### Voice listing and management
-
-The gateway also forwards these Irodori-specific endpoints:
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/v1/audio/voices` | List voices |
-| POST | `/v1/audio/voices` | Upload a voice |
-| GET | `/v1/audio/voices/{voice_id}` | Get voice metadata |
-| PUT | `/v1/audio/voices/{voice_id}` | Replace a voice |
-| DELETE | `/v1/audio/voices/{voice_id}` | Delete a voice |
-
-When more than one speech backend is eligible, select the public model with `?model=...`. Omit the selector if only one backend is eligible.
+### Irodori-TTS (dedicated key)
 
 ```bash
-curl -H "Authorization: Bearer $API_KEY" \
-  'https://ai.example.com/v1/audio/voices?model=irodori-public'
+curl https://ai.example.com/v1/audio/voices \
+  -H "Authorization: Bearer $IRODORI_KEY"
+
+curl https://ai.example.com/v1/audio/speech \
+  -H "Authorization: Bearer $IRODORI_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"irodori-tts","input":"こんにちは","voice":"hadou","response_format":"wav"}' \
+  --output speech.wav
 ```
 
-**Permissions:** All voice-management operations, including uploads and deletion, use the same `audio_speech` permission as speech generation. Be careful when issuing client keys. `GET /v1/audio/voices` is an Irodori extension, not a standard OpenAI endpoint.
+Voice uploads and management follow the Irodori server's native API (`POST /v1/audio/voices`, `GET/PUT/DELETE /v1/audio/voices/{voice_id}`, etc.). No gateway-specific `?model=` parameter is needed. `model`, `voice`, and Irodori-specific fields are forwarded unchanged.
 
-## Operations and updates
+### Kokoro-TTS (dedicated key)
+
+```bash
+curl https://ai.example.com/v1/audio/voices \
+  -H "Authorization: Bearer $KOKORO_KEY"
+
+curl https://ai.example.com/v1/audio/speech \
+  -H "Authorization: Bearer $KOKORO_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"kokoro","input":"Hello","voice":"af_bella","response_format":"mp3"}' \
+  --output speech.mp3
+```
+
+Other Kokoro-FastAPI endpoints under `/v1/`, including `/v1/audio/voices/combine` where offered, are passed to the selected backend. Supported options are determined by the installed upstream server version. Unsupported paths return the upstream response.
+
+**Multiple servers:** two Irodori registrations generate two distinct keys; `/v1/audio/voices` and `/v1/audio/speech` are sent to the backend selected by the key. `voice` remains a regular upstream request field.
+
+## Upgrade and operations
+
+Re-running `sudo ./install.sh` updates the service and keeps the persistent SQLite database at `/var/lib/openai-compat-gateway/gateway.sqlite3`. The schema migration adds the backend type and dedicated-key hash without invalidating existing regular keys. Previously registered backends default to **OpenAI-compatible**.
 
 ```bash
 sudo systemctl status openai-compat-gateway
@@ -117,16 +112,18 @@ sudo journalctl -u openai-compat-gateway -f
 sudo systemctl restart openai-compat-gateway
 ```
 
-To update, run `git pull` in your clone and rerun `sudo ./install.sh`. Persistent configuration lives at `/var/lib/openai-compat-gateway/gateway.sqlite3`; reinstalling preserves it. Back it up before updating.
+The dashboard also offers SQLite backup / restore. Backups contain upstream credentials and key hashes: protect them. As before, upstream credentials are stored in an access-restricted database **without encryption at rest**.
 
-The **Usage** tab provides configuration backup and restore. Restoring requires the administrator password and a service restart. Backups contain upstream credentials and must be protected.
+### Security and limitations
 
-### Security notes
+- Only registered, enabled backends are reachable with their dedicated keys, via paths under `/v1/`. The gateway does not proxy non-`/v1/` endpoints or WebSockets.
+- Dedicated forwarding deliberately passes through upstream `GET`, `POST`, `PUT`, and `DELETE` calls, including voice changes. Treat each dedicated key as granting the corresponding upstream `/v1/` permissions. Restrict network access and use HTTPS.
+- This implementation uses buffered request bodies (256 MiB default limit) and streamed upstream responses. It does not transparently support every HTTP protocol feature.
+- Test each actual upstream version separately. Local automated tests use mock servers rather than real Irodori/Kokoro inference.
 
-- Use HTTPS for remote administration.
-- Upstream secrets are stored in access-restricted SQLite but are **not encrypted at rest**.
-- HTTPS certificate verification remains enabled; the gateway refers to `/etc/ssl/certs/ca-certificates.crt` for CA certificates.
-- Check per-model endpoints and client key permissions before publishing models.
+## Acknowledgements
+
+Thanks to **Aratako** for developing [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server), and to **remsky and contributors** for developing [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI). These are independent open-source projects; this gateway is not affiliated with their developers.
 
 ## License
 

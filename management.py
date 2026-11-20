@@ -83,6 +83,11 @@ class Store:
             # re-import those models without changing any other model settings.
             db.execute("DROP TABLE IF EXISTS excluded_models")
             backend_cols = {r[1] for r in db.execute("PRAGMA table_info(backends)")}
+            if "kind" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN kind TEXT NOT NULL DEFAULT 'openai'")
+            if "dedicated_key_hash" not in backend_cols:
+                db.execute("ALTER TABLE backends ADD COLUMN dedicated_key_hash TEXT")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_backend_dedicated_hash ON backends(dedicated_key_hash)")
             if "api_key" not in backend_cols:
                 db.execute("ALTER TABLE backends ADD COLUMN api_key TEXT")
             if "auto_capabilities" not in backend_cols:
@@ -151,9 +156,15 @@ class Store:
                 row["capabilities"] = json.dumps(sorted(set(e for r in found for e in json.loads(r["endpoints"]))))
             return rows
 
+    def dedicated_backend_for(self, secret: str):
+        digest = hash_key(secret)
+        with self.db() as db:
+            row = db.execute("SELECT * FROM backends WHERE dedicated_key_hash=? AND enabled=1 AND kind IN ('irodori','kokoro')", (digest,)).fetchone()
+            return dict(row) if row else None
+
     def models(self):
         with self.db() as db:
-            return [dict(x) for x in db.execute("SELECT models.*,backends.enabled AS backend_enabled FROM models JOIN backends ON backends.id=models.backend_id ORDER BY models.public_id")]
+            return [dict(x) for x in db.execute("SELECT models.*,backends.enabled AS backend_enabled,backends.kind AS backend_kind FROM models JOIN backends ON backends.id=models.backend_id ORDER BY models.public_id")]
 
     def keys(self):
         with self.db() as db:
