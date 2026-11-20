@@ -43,7 +43,7 @@ def test_ui_uses_list_and_edit_separation():
     assert "E('model-search').oninput=render" in page
     assert "appendEditorRow(backendBody,tr,6" in page
     assert "appendEditorRow(modelBody,tr,5" in page
-    assert "appendEditorRow(keyBody,tr,5" in page
+    assert "appendEditorRow(keyBody,tr,6" in page
     assert "className='compact-table'" in page
     assert "公開・モデル名をまとめて保存" not in page
     assert "接続診断" not in page
@@ -78,9 +78,9 @@ def test_nonstandard_endpoint_tags_have_lime_background():
 def test_key_type_labels_and_openai_model_choices():
     page = HTML.read_text(encoding="utf-8")
     assert '<option value="openai">標準キー</option>' in page
-    assert '<option value="dedicated">特定バックエンド専用キー</option>' in page
+    assert '<option value="dedicated">拡張キー</option>' in page
     assert 'すべての公開モデル' in page
-    assert "k.backend_id?'特定バックエンド専用キー':'標準キー'" in page
+    assert "k.backend_id?'拡張キー':'標準キー'" in page
     assert "m.published&&state.backends.some(b=>b.id===m.backend_id&&b.enabled)" in page
     assert 'すべてのOpenAI互換モデル' not in page
 
@@ -100,4 +100,25 @@ def test_standard_key_and_usage_labels():
     from pathlib import Path
     page=(Path(__file__).resolve().parent.parent/'admin.html').read_text()
     assert "'すべての公開モデル':arr(k.models)" in page
-    assert "k.name+' (ID: '+x.key_id+')'" in page
+    assert "k.name+'（キーID: '+x.key_id+'）'" in page
+
+
+def test_management_identifiers_are_labeled_by_role():
+    page = HTML.read_text(encoding="utf-8")
+    assert '<label>バックエンドID<input id="backend-id"' in page
+    assert "makeTable(E('backend-list'),['バックエンドID','種別'" in page
+    assert '<label>キー名<input id="key-name"' in page
+    assert "makeTable(E('key-list'),['キー名','有効期限'" in page
+    assert "'キーID: '+k.id" in page
+    assert "'元モデルID: '+m.upstream_id" in page
+
+
+def test_key_table_has_separate_endpoint_and_model_columns():
+    page = HTML.read_text(encoding="utf-8")
+    assert "makeTable(E('key-list'),['キー名','有効期限','状態','エンドポイント','モデル','操作'])" in page
+    assert "const endpointsCell=appendCell(tr,'','compact-cell')" in page
+    assert "const modelsCell=appendCell(tr,'','compact-cell')" in page
+    assert "const modelNames=[...new Set(state.models.filter(m=>m.backend_id===k.backend_id).map(m=>m.public_id))]" in page
+    assert "appendEditorRow(keyBody,tr,6" in page
+    assert "許可エンドポイント・モデル" not in page
+    assert "特定バックエンド専用キー" not in page

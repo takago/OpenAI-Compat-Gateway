@@ -55,7 +55,7 @@ If the upstream requires authentication, configure its key in the backend settin
 
 ## API key issuance and management
 
-Open the **API Keys** tab and click **Issue** (Add):
+Open the **API Keys** tab and click **Add** to enter a **key name** and choose a key type. The key name is a unique administrative label; it is distinct from the numeric key ID assigned by the system and the API key secret issued to the client:
 
 - **Standard key:** choose allowed OpenAI-standard endpoints and published models, regardless of backend type.
 - **Dedicated API:** select exactly one registered Irodori-TTS or Kokoro-TTS backend. The key form also displays the model names registered for that backend. Multiple backends can each have their own client key.
