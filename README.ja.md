@@ -123,33 +123,6 @@ sudo systemctl start openai-compat-gateway
 バックエンド，モデル，APIキーの一覧をPC向けの横並び表形式に整理しました．検索・絞り込み・追加操作を同じ行に集約し，「編集」を押した行だけフォームを展開します．狭い画面では表を横スクロールできます．APIとSQLiteの構造は変更していません．
 
 
-## Kokoro TTS との連携
-
-[remsky/Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) をはじめ，`POST /v1/audio/speech` を備えたOpenAI互換のKokoroサーバを利用できます．バックエンドURLとして `http://<サーバ>:8880/v1` などを登録し，上流の `kokoro` モデル（サーバによって異なる場合があります）を検出または手動登録します．モデルの対応エンドポイントを **`POST /v1/audio/speech`** に設定して公開し，APIキーにその公開モデルと `audio_speech` の利用を許可してください．
-
-音声生成時は，公開モデル名だけを上流モデル名へ書き換え，`input`，`voice`，`response_format`，`speed`，`stream`，`allow_voice_tags`，`lang_code`，`volume_multiplier`，`normalization_options`，`voice_aliases`，`ssml` などの値を基本的にそのまま転送します．音声データやHTTPストリーミングも変換しません．各オプションの可否はKokoroサーバの種類・バージョンに依存します．特に，SSEや音声クローニングに自動的に対応するわけではありません．
-
-Kokoro-FastAPIの `GET /v1/audio/voices` は音声一覧をそのまま返します．`?legacy=true` も利用できます．さらに `POST /v1/audio/voices/combine` により，音声名のJSON文字列または文字列配列を送って，合成した音声の `.pt` ファイルを受け取れます．ただし，上流サーバの `ALLOW_LOCAL_VOICE_SAVING=true` が必要であり，無効な場合は上流の403をそのまま返します．ほかのKokoro実装では音声一覧やcombineが存在しないことがあります．
-
-IrodoriとKokoroなど複数の音声バックエンドを利用できるAPIキーでは，音声一覧とcombineのURLへ `?model=<公開モデルID>` を付けて対象を選びます．この選択値は上流へ転送しません．どちらも `audio_speech` 権限を使います．上流が音声の変更操作を公開している場合，APIキーの配布範囲に注意してください．
-
-```bash
-# 音声生成
-curl -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"model":"kokoro-public","input":"こんにちは","voice":"jf_alpha","response_format":"wav","speed":1.0}' \
-  https://gateway.example/v1/audio/speech --output kokoro.wav
-
-# 音声一覧（Kokoro-FastAPI）
-curl -H "Authorization: Bearer $API_KEY" \
-  'https://gateway.example/v1/audio/voices?model=kokoro-public'
-
-# 音声の合成（上流側で保存機能が有効な場合）
-curl -X POST -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '["af_heart","af_bella"]' \
-  'https://gateway.example/v1/audio/voices/combine?model=kokoro-public' --output mixed.pt
-```
-
 ## Irodori-TTS-Server との連携
 
 [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server) を音声合成バックエンドとして接続できます．管理画面でバックエンドURLを `http://<サーバ>:8088/v1` として登録し，`/v1/models` から `irodori-tts` を検出したら，モデルの対応エンドポイントに **`POST /v1/audio/speech`** を設定し，公開してください．自動検出が利用できない場合は同じモデルIDを手動登録できます．APIキーの許可モデルに公開IDを指定します．

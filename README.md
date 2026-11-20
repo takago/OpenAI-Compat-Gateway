@@ -87,33 +87,6 @@ The four tabs are Backends, Models, API Keys, and Usage. Lists are read-only sum
 The admin interface uses compact tables on desktop for backends, models, and API keys. Search, filters, and actions share one toolbar. Select **Edit** to expand a row-level form. On narrow screens, tables can be scrolled horizontally. Existing API routes and database records are unchanged.
 
 
-## Kokoro TTS integration
-
-The gateway supports OpenAI-compatible Kokoro servers, including [remsky/Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) and other implementations exposing `POST /v1/audio/speech`. Register a backend such as `http://<host>:8880/v1`, discover the upstream `kokoro` model (or manually register the model ID supported by your server), publish it with the endpoint **`POST /v1/audio/speech`**, and allow the public model ID through the API key's `audio_speech` capability.
-
-`model` is rewritten from the public alias to the upstream model ID; `input`, `voice`, `response_format`, `speed`, and Kokoro-specific fields such as `stream`, `allow_voice_tags`, `lang_code`, `volume_multiplier`, `normalization_options`, `voice_aliases` and `ssml` are forwarded as provided. Audio bytes and HTTP streaming are forwarded without transcoding. Supported features depend on the upstream Kokoro server/version. In particular, do **not** assume SSE or voice cloning is supported just because the gateway proxies the request.
-
-For Kokoro-FastAPI, `GET /v1/audio/voices` forwards the voice catalog response unchanged, including `legacy=true` when supplied. `POST /v1/audio/voices/combine` forwards a JSON string or list of voice names and returns the resulting `.pt` file if voice saving is enabled upstream (`ALLOW_LOCAL_VOICE_SAVING=true`); otherwise its upstream 403 error is passed through. Both endpoints use the `audio_speech` permission. Other Kokoro server variants may not offer `combine` or a voice listing API.
-
-When more than one speech backend is available to an API key, append `?model=<public-model-id>` to voice-list or combine requests. The selector is removed before forwarding to Kokoro. Since voice management shares `audio_speech` privileges, do not give access to an untrusted user if the upstream exposes state-changing voice operations.
-
-```bash
-# Speech (replace gateway address and API key)
-curl -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"model":"kokoro-public","input":"Hello from Kokoro!","voice":"af_heart","response_format":"wav","speed":1.0}' \
-  https://gateway.example/v1/audio/speech --output kokoro.wav
-
-# Voice list (remsky/Kokoro-FastAPI)
-curl -H "Authorization: Bearer $API_KEY" \
-  'https://gateway.example/v1/audio/voices?model=kokoro-public'
-
-# Optional voice combination (must be enabled on the Kokoro backend)
-curl -X POST -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '["af_heart","af_bella"]' \
-  'https://gateway.example/v1/audio/voices/combine?model=kokoro-public' --output mixed.pt
-```
-
 ## Irodori-TTS-Server integration
 
 Register [Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server) as a backend at `http://<host>:8088/v1`. Discover or manually register the upstream `irodori-tts` model, publish it, and enable **`POST /v1/audio/speech`** for that model. Grant the client's API key access to its public model ID and the `audio_speech` capability.
