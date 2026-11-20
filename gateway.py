@@ -399,18 +399,28 @@ def create_app(config_path: str | None = None) -> FastAPI:
         issued=None
         with store.db() as db:
             current=db.execute("SELECT kind,dedicated_key_hash FROM backends WHERE id=?",(bid,)).fetchone()
-            if current is not None and current["kind"] != kind:
-                raise HTTPException(409, "Backend kind cannot be changed; create a new backend instead")
-            if kind != "openai" and (current is None or not current["dedicated_key_hash"]):
+            old_kind=current["kind"] if current is not None else None
+            # Keep the key when switching between dedicated API types. A transition
+            # to OpenAI revokes it; a transition to dedicated issues a new secret.
+            if kind == "openai":
+                dedicated_hash=None
+            elif current is not None and old_kind in {"irodori", "kokoro"} and current["dedicated_key_hash"]:
+                dedicated_hash=current["dedicated_key_hash"]
+            else:
                 issued="ocg_" + secrets.token_urlsafe(32)
+                dedicated_hash=hash_key(issued)
+            discover_enabled=int(bool(data.get("discover",True))) if kind=="openai" else 0
             db.execute("""INSERT INTO backends(id,url,capabilities,key_env,enabled,discover,api_key,kind,dedicated_key_hash)
                 VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                 url=excluded.url,capabilities=excluded.capabilities,
                 key_env=NULL,enabled=excluded.enabled,discover=excluded.discover,
-                api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END""",
+                api_key=CASE WHEN excluded.api_key='' THEN backends.api_key ELSE excluded.api_key END,
+                kind=excluded.kind,dedicated_key_hash=excluded.dedicated_key_hash""",
                 (bid,url,json.dumps([]),None,int(bool(data.get("enabled",True))),
-                 int(bool(data.get("discover",True))) if kind=="openai" else 0,direct_key,kind,
-                 hash_key(issued) if issued else None))
+                 discover_enabled,direct_key,kind,dedicated_hash))
+            # Do not delete the model rows on conversion. They are ignored by
+            # OpenAI routing while the backend is dedicated, and remain available
+            # if the administrator changes the backend back to OpenAI.
         cached.pop(bid,None)
         result = await refresh_one(next(b for b in store.backends() if b["id"] == bid), True)
         response={"ok":True,"discovery":result}

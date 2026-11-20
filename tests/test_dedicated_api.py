@@ -71,6 +71,7 @@ async def test_dedicated_irodori_and_kokoro_same_paths(tmp_path, monkeypatch):
             assert (await client.get('/v1/audio/voices',headers={'Authorization':'Bearer '+old})).status_code==401
             assert (await client.get('/v1/audio/voices',headers={'Authorization':'Bearer '+new})).status_code==200
             assert (await client.post('/admin/api/backends',headers=admin,json={
-                'id':'a','kind':'openai','url':'http://a.example/v1'})).status_code==409
+                'id':'a','kind':'openai','url':'http://a.example/v1'})).status_code==200
+            assert (await client.get('/v1/audio/voices',headers={'Authorization':'Bearer '+new})).status_code==401
             assert (await client.delete('/admin/api/backends/a',headers=admin)).status_code==200
             assert (await client.get('/v1/audio/voices',headers={'Authorization':'Bearer '+new})).status_code==401

@@ -53,7 +53,7 @@ Backend API keys (if the upstream requires one) can be entered in the backend's 
 
 **Keys:** only SHA-256 hashes of gateway-issued keys are stored. Copy the full key when issued; it cannot be shown again. **Edit → Regenerate dedicated key** revokes the old dedicated key and displays a replacement. Deleting or disabling a dedicated backend disables access through its key. Existing regular keys and expiration / permission settings are unchanged.
 
-Backend types are fixed after creation. To replace an older OpenAI-compatible registration with a dedicated type, register a new backend ID and configure its new key before removing the old registration.
+You can change a registered backend type in **Backends → Edit**. Switching from OpenAI-compatible to Irodori-TTS or Kokoro-TTS issues a new dedicated key. Switching between the two dedicated types keeps the existing key. Switching back to OpenAI-compatible revokes the dedicated key. Existing model registrations are preserved and can be reused if you switch back to OpenAI-compatible.
 
 ## Use the API
 
@@ -83,7 +83,7 @@ curl https://ai.example.com/v1/audio/speech \
   --output speech.wav
 ```
 
-Voice uploads and management follow the Irodori server's native API (`POST /v1/audio/voices`, `GET/PUT/DELETE /v1/audio/voices/{voice_id}`, etc.). No gateway-specific `?model=` parameter is needed. `model`, `voice`, and Irodori-specific fields are forwarded unchanged.
+Voice uploads and management use the Irodori-TTS-Server API (`POST /v1/audio/voices`, `GET/PUT/DELETE /v1/audio/voices/{voice_id}`, etc.). `model`, `voice`, and Irodori-specific fields are forwarded unchanged.
 
 ### Kokoro-TTS (dedicated key)
 

@@ -166,20 +166,34 @@ function backendEditor(b,card){
  const urlL=node('label','API URL（/v1まで）'),url=node('input');url.type='url';url.required=true;url.value=b.url;urlL.append(url);
  const kindL=node('label','種別'),kind=node('select');
  for(const [v,t] of [['openai','OpenAI互換'],['irodori','Irodori-TTS'],['kokoro','Kokoro-TTS']])kind.append(new Option(t,v));
- kind.value=b.kind||'openai';kind.disabled=true;kindL.append(kind);
+ kind.value=b.kind||'openai';kindL.append(kind);
  const keyL=node('label','バックエンドAPIキー（変更時のみ）'),key=node('input');key.type='password';key.autocomplete='new-password';keyL.append(key);
  const enabledL=node('label'),enabled=node('input');enabled.type='checkbox';enabled.checked=!!b.enabled;enabledL.className='inline-label';enabledL.append(enabled,node('span','バックエンドを有効にする'));
  const discoverL=node('label'),discover=node('input');discover.type='checkbox';discover.checked=!!b.discover;discoverL.className='inline-label';discoverL.append(discover,node('span','モデル一覧を自動取得'));
- grid.append(urlL,kindL,keyL,enabledL);if(kind.value==='openai')grid.append(discoverL);
- if(kind.value!=='openai'){
-   const info=node('div','専用APIキーは発行時にのみ全文を表示します．再発行すると以前のキーは使用できなくなります．');info.className='item-sub';grid.append(info);
-   const rotate=actionButton('専用キーを再発行',async()=>{
-     if(!confirm(b.id+' の専用キーを再発行しますか？旧キーは直ちに無効になります．'))return;
-     const r=await act(()=>api('backends/'+encodeURIComponent(b.id)+'/rotate-key','POST'),'専用キーを再発行しました');
-     if(r)revealKey(r.key,b.id+' 専用APIキー',true);
-   });grid.append(rotate);
- }const actions=node('div');actions.className='editor-actions';actions.append(actionButton('キャンセル',()=>ed.remove()),actionButton('保存',async()=>{
-  const r=await act(()=>api('backends','POST',{id:b.id,url:url.value,kind:kind.value,api_key:key.value,enabled:enabled.checked,discover:discover.checked}),'バックエンドを保存しました');if(r)ed.remove();
+ const modeInfo=node('div');modeInfo.className='item-sub';
+ const rotate=actionButton('専用キーを再発行',async()=>{
+   if(!confirm(b.id+' の専用キーを再発行しますか？旧キーは直ちに無効になります．'))return;
+   const r=await act(()=>api('backends/'+encodeURIComponent(b.id)+'/rotate-key','POST'),'専用キーを再発行しました');
+   if(r)revealKey(r.key,b.id+' 専用APIキー',true);
+ });
+ const updateKind=()=>{
+   const old=b.kind||'openai', current=kind.value;
+   discoverL.remove();modeInfo.remove();rotate.remove();modeInfo.textContent='';
+   if(current==='openai'){
+     grid.append(discoverL);
+     if(old!=='openai')modeInfo.textContent='保存すると専用APIキーは無効になります．';
+   }else{
+     if(old==='openai')modeInfo.textContent='保存すると専用APIキーを発行します．既存モデル設定は保持されます．';
+     else if(old!==current)modeInfo.textContent='専用APIキーを維持して種別を変更します．';
+     else modeInfo.textContent='キー全文は発行時のみ表示します．再発行すると旧キーは無効になります．';
+     if(old!=='openai')grid.append(rotate);
+   }
+   if(modeInfo.textContent)grid.append(modeInfo);
+ };
+ grid.append(urlL,kindL,keyL,enabledL);kind.onchange=updateKind;updateKind();
+ const actions=node('div');actions.className='editor-actions';actions.append(actionButton('キャンセル',()=>ed.remove()),actionButton('保存',async()=>{
+  const r=await act(()=>api('backends','POST',{id:b.id,url:url.value,kind:kind.value,api_key:key.value,enabled:enabled.checked,discover:discover.checked}),'バックエンドを保存しました');
+  if(r){ed.remove();if(r.key)revealKey(r.key,b.id+' 専用APIキー',true)}
  },'primary'));
  f.append(grid,actions);f.onsubmit=e=>e.preventDefault();ed.append(f);card.append(ed);
 }
@@ -216,7 +230,7 @@ function render(){
  E('model-filter').replaceChildren(new Option('すべてのバックエンド',''),...state.backends.filter(b=>b.kind==='openai').map(b=>new Option(b.id,b.id)));
  E('model-filter').value=filter;
  const search=(E('model-search').value||'').toLowerCase().trim();
- const models=state.models.filter(m=>(!filter||m.backend_id===filter)&&(E('show-hidden').checked||!m.hidden)&&(!search||[m.upstream_id,m.public_id,m.backend_id].some(v=>v.toLowerCase().includes(search))));
+ const models=state.models.filter(m=>m.backend_kind==='openai'&&(!filter||m.backend_id===filter)&&(E('show-hidden').checked||!m.hidden)&&(!search||[m.upstream_id,m.public_id,m.backend_id].some(v=>v.toLowerCase().includes(search))));
  const modelBody=makeTable(E('model-list'),['公開モデルID','バックエンド','状態','対応エンドポイント','操作']);
  for(const m of models){const tr=node('tr');
   const id=appendCell(tr,'','compact-name');id.append(node('div',m.public_id));
